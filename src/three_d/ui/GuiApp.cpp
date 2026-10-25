@@ -5,7 +5,12 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include "SceneRenderer3D.hpp"
+#include "SceneCoordinates3D.hpp"
 #include "AppRuntime.hpp"
+#include "GlassMaterial.hpp"
+#include "ParameterPanelHost.hpp"
+#include "ThemeValidation.hpp"
+#include <sstream>
 #include "SourceControls.hpp"
 #include "Workbench3D.hpp"
 #include "Presentation3D.hpp"
@@ -70,18 +75,18 @@ std::filesystem::path executableDirectory3D(const char* argv0) {
 }
 
 // Offers native file/folder selection while leaving the editable UTF-8 path available on every platform.
-void browseSave3D(char* value,std::size_t capacity,bool vts,bool save=true) {
+void browseSave3D(char* value,std::size_t capacity,bool vts,bool save=true,bool surface=false) {
 #ifdef _WIN32
     const auto initial=fromUtf8Path3D(value);
     std::vector<wchar_t> buffer(32768,L'\0');
     const auto filename=initial.filename().wstring();std::copy(filename.begin(),filename.end(),buffer.begin());
     const auto directory=initial.parent_path().wstring();
     OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);dialog.lpstrFile=buffer.data();dialog.nMaxFile=static_cast<DWORD>(buffer.size());
-    dialog.lpstrInitialDir=directory.c_str();dialog.lpstrFilter=vts?L"VTK StructuredGrid (*.vts)\0*.vts\0\0":L"Receiver CSV (*.csv)\0*.csv\0\0";
-    dialog.lpstrDefExt=vts?L"vts":L"csv";dialog.Flags=(save?OFN_OVERWRITEPROMPT:OFN_FILEMUSTEXIST)|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
+    dialog.lpstrInitialDir=directory.c_str();dialog.lpstrFilter=surface?L"VTK terrain (*.vti;*.vts)\0*.vti;*.vts\0VTK ImageData (*.vti)\0*.vti\0VTK StructuredGrid (*.vts)\0*.vts\0\0":vts?L"VTK StructuredGrid (*.vts)\0*.vts\0\0":L"Receiver CSV (*.csv)\0*.csv\0\0";
+    dialog.lpstrDefExt=surface?L"vti":vts?L"vts":L"csv";dialog.Flags=(save?OFN_OVERWRITEPROMPT:OFN_FILEMUSTEXIST)|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
     if(save?GetSaveFileNameW(&dialog):GetOpenFileNameW(&dialog)) { const auto path=utf8Path3D(buffer.data());std::snprintf(value,capacity,"%s",path.c_str()); }
 #else
-    (void)value;(void)capacity;(void)vts;(void)save;
+    (void)value;(void)capacity;(void)vts;(void)save;(void)surface;
 #endif
 }
 
@@ -116,10 +121,12 @@ struct Workbench3D {
     std::array<bool,3> receiverExportComponents{false,false,true};
     std::array<bool,7> panels{true,true,true,true,true,true,true};
     static constexpr const char* panelNames[]{"Controls","Numerical diagnostics","Spatial exploration","Inline X-Z","Crossline Y-Z","Depth X-Y","Receiver records"};
-    void restoreWorkspace(){panels.fill(true);resetLayout=true;}
+    void restoreWorkspace(){panels.fill(true);SeisWave::Ui::setParameterDisplayMode(3,0);resetLayout=true;}
+    SeisWave::Ui::ParameterPanelHost parameterHost;
+    int floatingCategory{2},floatingRequestedTab{7},floatingNextRequestedTab{-1},lastParameterMode{};
     int materialPreset{};
     bool layerEditorOpen{},requestLayerEditor{};
-    int requestedTab{0};
+    int requestedTab{7};
     int nextRequestedTab{-1},controlCategory{2};
     std::array<ImRect,5> workflowRects;
     std::uint64_t performanceSession{};
@@ -138,12 +145,12 @@ struct Workbench3D {
     BackendKind3D memoryBackend{BackendKind3D::Cpu};
     int memoryDevice{-2};
     double memoryQueryTime{-10};
-    int stepsPerFrame{1},theme{3},selectedReceiver{};
+    int stepsPerFrame{1},theme{themeIndex3D()},selectedReceiver{};
     double lastBatchMs{};
     double meanStepMs{};
     float frameBudgetMs{16.0f};
     std::string error,status{"Ready. Build a model, then Run or Step."};
-    std::array<char,2048> vtsPath{},csvPath{},modelPath{};
+    std::array<char,2048> vtsPath{},csvPath{},modelPath{},surfacePath{};
     bool snapshotFollowDisplay{true};
     VtsExportOptions3D snapshotOptions{{false,false,true,false,false,false,false,false,false,false,false},true,false};
     bool pendingModelEdits() const {
@@ -152,6 +159,9 @@ struct Workbench3D {
     }
     void saveModel() {
         error.clear();
+        if(!simulation->parameters().surfaceGrid.empty()) {
+            error=language3D()?"当前外部 DEM 模型暂不支持可复现 VTS 保存。请保留地表 VTI/VTS 和模拟参数；波场 VTS 与记录仍可导出。":"External DEM reproducible VTS saving is not yet supported. Keep the terrain VTI/VTS and parameters; wavefield VTS and records can still be exported.";return;
+        }
         if(pendingModelEdits()){error="Apply pending parameters before saving the model.";return;}
         if(writeModelVts3D(*simulation,fromUtf8Path3D(modelPath.data()),activeComputeSettings,error))
             status="Reproducible 3D model saved. Import starts a new simulation at t=0.";
@@ -206,11 +216,14 @@ struct Workbench3D {
 
     // UI preferences live outside physical state and are never read as simulation commands.
     void loadPreferences() {
-        std::ifstream input(outputRoot3D()/"ui"/"preferences.cfg");std::string key;double value=0;
-        while(input>>key>>value) {
+        std::ifstream input(outputRoot3D()/"ui"/"preferences.cfg");std::string key,line;double value=0;
+        theme=themeIndex3D();
+        int terrainPaletteVersion=1;bool terrainPaletteLoaded=false;
+        while(std::getline(input,line)) {
+            std::istringstream row(line);if(!(row>>key>>value))continue;
             if(!std::isfinite(value))continue;
             if(key=="font")uiFontSize=static_cast<float>(std::clamp(value,16.0,28.0));
-            else if(key=="theme")theme=static_cast<int>(std::clamp(value,0.0,double(themeCount3D-1)));
+            else if(key=="theme")continue; // Appearance is resolved by stable key before entering the workspace.
             else if(key=="language")setLanguage3D(static_cast<int>(value!=0));
             else if(key=="layout")layoutPreset=static_cast<int>(std::clamp(value,0.0,3.0));
             else if(key=="autofit")autoFitGeometry=value!=0;
@@ -222,6 +235,9 @@ struct Workbench3D {
             else if(key=="model_component")visuals.modelComponent=static_cast<int>(std::clamp(value,0.0,2.0));
             else if(key=="wave_palette")visuals.palette=static_cast<int>(std::clamp(value,0.0,13.0));
             else if(key=="model_palette")visuals.modelPalette=static_cast<int>(std::clamp(value,0.0,13.0));
+            else if(key=="terrain_color")visuals.colorTopography=value!=0;
+            else if(key=="terrain_palette_version")terrainPaletteVersion=static_cast<int>(std::clamp(value,1.0,2.0));
+            else if(key=="terrain_palette"){visuals.terrainPalette=static_cast<int>(std::clamp(value,0.0,double(wavePaletteCount3D-1)));terrainPaletteLoaded=true;}
             else if(key=="wave_colorbar")visuals.showWaveColorbar=value!=0;
             else if(key=="model_colorbar")visuals.showModelColorbar=value!=0;
             else if(key=="show_colorbars")visuals.showColorbar=value!=0;
@@ -232,13 +248,17 @@ struct Workbench3D {
             else if(key=="show_coordinates")visuals.showCoordinates=value!=0;
             else for(int c=0;c<3;++c){if(key=="model_min_"+std::to_string(c))visuals.modelMinimum[c]=static_cast<float>(std::clamp(value,-1e8,1e8));if(key=="model_max_"+std::to_string(c))visuals.modelMaximum[c]=static_cast<float>(std::clamp(value,-1e8,1e8));}
         }
+        if(terrainPaletteLoaded)visuals.terrainPalette=terrainPalettePreference3D(visuals.terrainPalette,terrainPaletteVersion);
         applyTheme3D(theme);
     }
     void savePreferences() const {
         std::ofstream output(outputRoot3D()/"ui"/"preferences.cfg");
         int mask=0;for(int i=0;i<7;++i)if(panels[i])mask|=1<<i;output<<"panels "<<mask<<'\n';
         output<<"font "<<uiFontSize<<"\nlanguage "<<language3D()<<"\ntheme "<<theme<<"\nlayout "<<layoutPreset<<"\nautofit "<<autoFitGeometry<<"\nworkers "<<activeComputeSettings.cpuThreads<<'\n';
+        output<<"parameters_2d "<<SeisWave::Ui::parameterDisplayMode(2)<<"\nparameters_3d "<<parameterHost.mode()<<'\n';
+        output<<"theme_key "<<themeKey3D(theme)<<"\ntheme_schema 2\nglass_finish "<<glassFinish3D()<<"\nglass_strength "<<glassStrength3D()<<"\nglass_motion "<<glassMotion3D()<<'\n';
         output<<"normalized_colorbar "<<visuals.normalizedColorbar<<'\n';
+        output<<"terrain_color "<<visuals.colorTopography<<"\nterrain_palette_version 2\nterrain_palette "<<visuals.terrainPalette<<'\n';
         output<<"display_mode "<<visuals.displayMode<<"\nwave_component "<<visuals.component<<"\nmodel_component "<<visuals.modelComponent<<"\nwave_palette "<<visuals.palette<<"\nmodel_palette "<<visuals.modelPalette<<'\n';
         output<<"wave_colorbar "<<visuals.showWaveColorbar<<"\nmodel_colorbar "<<visuals.showModelColorbar<<"\nmodel_auto_range "<<visuals.modelAutoRange<<"\nshow_dimensions "<<visuals.showDimensions<<"\nshow_coordinates "<<visuals.showCoordinates<<'\n';
         output<<"show_colorbars "<<visuals.showColorbar<<"\nwave_opacity "<<visuals.waveOpacity<<"\nwave_threshold "<<visuals.waveThreshold<<'\n';
@@ -247,6 +267,7 @@ struct Workbench3D {
 
     // Builds physical state while preserving palette, gain, camera, and slice view adjustments.
     bool rebuild(bool useEdited) {
+        try {
         rememberPerformance();
         const bool first=!simulation->initialized();
         const std::optional<SimulationParameters> previous=first?std::nullopt:std::optional<SimulationParameters>(simulation->parameters());
@@ -254,22 +275,26 @@ struct Workbench3D {
         const auto parameters=useEdited?edited:simulation->parameters();
         const auto kind=useEdited?static_cast<BackendKind3D>(selectedBackend):simulation->backendInfo().kind;
         const auto settings=useEdited?computeSettings:activeComputeSettings;
-        if(kind!=simulation->backendInfo().kind) {
-            auto candidate=createSimulationBackend3D(kind,error);
-            if(!candidate||!candidate->initialize(parameters,error,settings))return false;
-            simulation=std::move(candidate);
-        } else if(!simulation->initialize(parameters,error,settings))return false;
-        if(useEdited)activeComputeSettings=computeSettings;
+        if(!validateSimulationConfiguration3D(parameters,kind,error,settings))return false;
+        displayFrame={};modelFrame={};recordView.releaseCache();
+        const auto rebuilt=rebuildSimulation3D(simulation,parameters,kind,settings,error);
+        if(!rebuilt.success&&!rebuilt.released)return false;
+        memoryQueryTime=-10;
+        if(!simulation||!simulation->initialized()){running=false;homeRequested=true;return false;}
+        if(rebuilt.success&&useEdited)activeComputeSettings=computeSettings;
+        if(rebuilt.fallback)activeComputeSettings={1};
         ++performanceSession;
         modelBounds=physicalModelBounds3D(simulation->grid());modelFrameSession=0;
         running=false;lastBatchMs=0;meanStepMs=0;
         displayFrame.revision=0;recordView.invalidate();
-        if(useEdited)dirty=false;
+        if(rebuilt.success&&useEdited)dirty=false;
         const auto& p=simulation->parameters();
         const bool fit=reconcileViews3D(previous?&*previous:nullptr,p,previousReceivers,static_cast<int>(simulation->receivers().size()),slices,sliceViews,selectedReceiver,autoFitGeometry);
         if(fit)renderer.fitCamera();
-        status=fit?"Geometry updated: relative slices preserved; views fitted. Gain and palette retained.":"Fields reset: views, gain and receiver selection retained.";
-        return true;
+        status=rebuilt.success?(fit?"Geometry updated: relative slices preserved; views fitted. Gain and palette retained.":"Fields reset: views, gain and receiver selection retained."):error;
+        if(!rebuilt.success&&language3D())status=(rebuilt.restored?"新网格创建失败，已按原参数恢复到零时刻，原波场和记录已释放。 ":"模型恢复失败，已切换到小型 CPU 会话，请调整参数后重建。 ")+error;
+        return rebuilt.success;
+        } catch(const std::exception& ex){running=false;error=std::string("Rebuild failed: ")+ex.what();if(!simulation||!simulation->initialized())homeRequested=true;return false;}
     }
     bool clearFields() {
         rememberPerformance();
@@ -281,30 +306,63 @@ struct Workbench3D {
     }
     void memorySummary() {
         const auto kind=static_cast<BackendKind3D>(selectedBackend);
-        if(memoryBackend!=kind||memoryDevice!=computeSettings.cudaDevice||ImGui::GetTime()-memoryQueryTime>1){memoryAvailable=queryBackendMemory3D(kind,computeSettings.cudaDevice);memoryBackend=kind;memoryDevice=computeSettings.cudaDevice;memoryQueryTime=ImGui::GetTime();}
+        if(memoryBackend!=kind||memoryDevice!=computeSettings.cudaDevice||ImGui::GetTime()-memoryQueryTime>1){memoryAvailable=memoryForRebuild3D(simulation.get(),kind,computeSettings.cudaDevice);memoryBackend=kind;memoryDevice=computeSettings.cudaDevice;memoryQueryTime=ImGui::GetTime();}
         const auto memory=estimateModelMemory3D(edited);constexpr double gib=1024.0*1024*1024;
-        ImGui::TextWrapped(tr3D("Grid limit: 300 x 300 x 300 | %zu padded nodes"),memory.points);
+        ImGui::TextWrapped("%s %zu / %zu",language3D()?"含幽灵层节点 / 总预算：":"Padded nodes / total budget:",memory.points,maxPaddedNodes3D);
         ImGui::TextWrapped(tr3D("Required RAM %.2f GiB | VRAM %.2f GiB"),(kind==BackendKind3D::Cuda?memory.cudaHostMiB:memory.cpuMiB)/1024,kind==BackendKind3D::Cuda?memory.deviceMiB/1024:0);
-        ImGui::TextWrapped(tr3D("Available RAM %.2f GiB | VRAM %.2f GiB"),memoryAvailable.hostAvailableBytes/gib,memoryAvailable.deviceAvailableBytes/gib);
+        ImGui::TextWrapped(language3D()?"重建可用 RAM %.2f GiB | VRAM %.2f GiB（含旧模型释放）":"Rebuild RAM %.2f GiB | VRAM %.2f GiB (includes released model)",memoryAvailable.hostAvailableBytes/gib,memoryAvailable.deviceAvailableBytes/gib);
         if(!fitsMemory3D(memory,kind,memoryAvailable))ImGui::TextWrapped(tr3D("Requested grid exceeds limits or currently available memory. It will not be allocated."));
         if(functionButton3D("Fit to available memory",FunctionRole3D::Model,{-1,0})) {
-            memoryAvailable=queryBackendMemory3D(kind,computeSettings.cudaDevice);SimulationParameters fitted;
-            if(fitModelToMemory3D(edited,kind,memoryAvailable,fitted)){edited=std::move(fitted);dirty=true;error.clear();status="Grid fitted to available memory. Spacing retained; review physical dimensions and apply rebuild.";}
+            memoryAvailable=memoryForRebuild3D(simulation.get(),kind,computeSettings.cudaDevice);SimulationParameters fitted;
+            const bool success=edited.surfaceGrid.empty()?fitModelToMemory3D(edited,kind,memoryAvailable,fitted):fitSurfaceModel3D(edited,kind,memoryAvailable,fitted,error);
+            if(success){edited=std::move(fitted);dirty=true;error.clear();status=edited.surfaceGrid.empty()?"Grid fitted to available memory. Spacing retained; review physical dimensions and apply rebuild.":"DEM grid redistributed over X/Y/Z. Review numerical spacing and covered span, then apply rebuild.";}
             else error="Even the minimum grid cannot fit the selected backend or receiver settings.";
         }
-        ImGui::TextWrapped(tr3D("Fit is explicit: it reduces node counts, retains spacing, and fits source/receiver positions. The actual physical size changes."));
+        ImGui::TextWrapped("%s",edited.surfaceGrid.empty()?tr3D("Fit is explicit: it reduces node counts, retains spacing, and fits source/receiver positions. The actual physical size changes."):(language3D()?"DEM 按总点数与可用内存分配 XYZ；保留原始数组，明确调整数值间距与层数。":"DEM XYZ allocation uses total nodes and memory; original samples are retained, numerical spacing and layers are reported."));
+    }
+    bool stageSurface() {
+        SurfaceGrid3D data;
+        if(!readSurfaceGrid3D(fromUtf8Path3D(surfacePath.data()),data,error))return false;
+        const int minimum=edited.source.kind==SeisWave::SourceKind::IsotropicMoment?11:8;
+        if(data.nx<minimum||data.ny<minimum){error="DEM needs at least "+std::to_string(minimum)+" samples per axis for the current source.";return false;}
+        auto requested=edited;requested.surfaceGrid=std::move(data);
+        auto available=memoryForRebuild3D(simulation.get(),static_cast<BackendKind3D>(selectedBackend),computeSettings.cudaDevice);
+        // Leave an additional planning margin for UI caches and resource changes.
+        available.hostAvailableBytes=available.hostAvailableBytes/100*95;
+        available.deviceAvailableBytes=available.deviceAvailableBytes/100*95;
+        SimulationParameters next;
+        if(!fitSurfaceModel3D(requested,static_cast<BackendKind3D>(selectedBackend),available,next,error))return false;
+        edited=std::move(next);dirty=true;error.clear();
+        status=(language3D()?"DEM 原始数组已保留；数值网格分配为 ":"Original DEM retained; numerical grid allocated as ")+std::to_string(edited.nx)+" x "+std::to_string(edited.ny)+" x "+std::to_string(edited.nz)+(language3D()?"。核对间距与范围后应用/重建。":". Review spacing/span, then apply / rebuild.");
+        return true;
+    }
+    void surfaceControls() {
+        ImGui::TextWrapped("%s",language3D()?"导入地表 VTI/VTS（二维规则高程，XY 和高程单位为米）。VTS 为单层起伏地表，不是三维模型体。":"Import a metre-based terrain VTI/VTS. VTS must be a single surface, not a model volume.");
+        ImGui::SetNextItemWidth(-1);ImGui::InputText("##surfaceGridPath",surfacePath.data(),surfacePath.size());
+        if(ImGui::Button(language3D()?"选择高程数组...":"Choose elevation array..."))browseSave3D(surfacePath.data(),surfacePath.size(),false,false,true);
+        if(ImGui::Button(language3D()?"读取 DEM（待应用）":"Stage DEM array"))(void)stageSurface();
+        if(!edited.surfaceGrid.empty()) {
+            const auto& d=edited.surfaceGrid;
+            const auto mm=std::minmax_element(d.elevations.begin(),d.elevations.end());
+            ImGui::TextWrapped("%s %d x %d | h=%.3f m | %.1f x %.1f m",language3D()?"高程数组":"DEM array",d.nx,d.ny,d.spacing,d.width(),d.height());
+            ImGui::TextWrapped("%s %d x %d x %d | h=%.3f m",language3D()?"实际待计算网格":"Staged numerical grid",edited.nx,edited.ny,edited.nz,edited.spacing);
+            ImGui::TextWrapped("%s %.3f .. %.3f m | %s %.3f m",language3D()?"高程":"Elevation",*mm.first,*mm.second,language3D()?"基准":"Datum",d.datum);
+            ImGui::TextWrapped("%s",language3D()?"行沿 Y 增大，列沿 X 增大；地表 Z = 基准 - 高程。材料深度按所选坐标模式计算。":"Rows increase in Y, columns in X; surface Z = datum - elevation. Material depths follow the selected coordinate mode.");
+            if(ImGui::Button(language3D()?"清除外部高程":"Clear external DEM")){edited.surfaceGrid={};dirty=true;}
+        }
     }
     void stagedTimeStepSummary() {
         if(edited==simulation->parameters())return;
         const auto& a=simulation->parameters();const auto& d=simulation->diagnostics();
-        if(edited.topographyAmplitude!=0&&(edited.nx!=a.nx||edited.ny!=a.ny||edited.nz!=a.nz||edited.spacing!=a.spacing||edited.topographyAmplitude!=a.topographyAmplitude||edited.topographyWavelength!=a.topographyWavelength||edited.terrainTransitionDepth!=a.terrainTransitionDepth)) {
+        const bool terrain=edited.topographyAmplitude!=0||!edited.surfaceGrid.empty();
+        if(terrain&&geometryChanged3D(edited,a)) {
             ImGui::TextWrapped(tr3D("Geometry edits pending: dt will be recalculated from the new mesh on Apply / rebuild."));return;
         }
-        if(edited.nx<8||edited.ny<8||edited.nz<8||edited.nx>300||edited.ny>300||edited.nz>300)return;
+        if(edited.nx<8||edited.ny<8||edited.nz<8||edited.nx>maxPhysicalNodesPerAxis3D||edited.ny>maxPhysicalNodesPerAxis3D||edited.nz>maxPhysicalNodesPerAxis3D)return;
         double vp=edited.vp;if(edited.layeredMaterial){vp=0;for(const auto& l:edited.layers)vp=std::max(vp,l.vp);}
         std::string why;TimeStepPlan3D preview;
-        const double metric=edited.topographyAmplitude==0?std::sqrt(3.0):d.maxMetricNorm;
-        const double length=edited.topographyAmplitude==0?edited.spacing/std::sqrt(3.0):d.minCellLength;
+        const double metric=!terrain?std::sqrt(3.0):d.maxMetricNorm;
+        const double length=!terrain?edited.spacing/std::sqrt(3.0):d.minCellLength;
         const double damping=absorbingRate3D(edited,0,0,edited.nz-1,vp);
         if(timeStepPlan3D(edited,vp,metric,length,damping,preview,why))ImGui::TextWrapped(tr3D("Staged dt %.6f ms | %d steps | stop %.6f s (not applied)"),preview.dt*1000,preview.steps,preview.dt*preview.steps);
         else ImGui::TextWrapped("%s",tr3D(why.c_str()));
@@ -362,7 +420,7 @@ struct Workbench3D {
             check(simulation->parameters()==edited&&simulation->dt()<previousDt,"GUI apply retained old parameters or dt after increasing Vp");
             check(sliceViews[1].zoom==2.5f && sliceViews[1].pan[0]==17 && renderer.cameraState()==materialCamera && selectedReceiver==grownReceiver,"Material edit reset view or receiver selection");
             check(rebuild(false) && sliceViews[1].zoom==2.5f && renderer.cameraState()==materialCamera,"Field reset changed the view");
-            const auto revision=simulation->revision();edited.nx=1000;running=true;
+            const auto revision=simulation->revision();edited.nx=maxPhysicalNodesPerAxis3D+1;running=true;
             check(!rebuild(true) && simulation->revision()==revision && running && sliceViews[1].zoom==2.5f,"Rejected model change mutated the active session/view");
             running=false;edited=simulation->parameters();edited.nx=12;edited.ny=10;edited.nz=16;edited.spacing=10;edited.topographyAmplitude=8;
             check(rebuild(true) && slices.x<12 && slices.y<10 && slices.z<16 && selectedReceiver<8,"Resize shrink left stale indices");
@@ -381,7 +439,7 @@ struct Workbench3D {
             const auto original=edited;const auto active=simulation->backendInfo().kind;
             const auto oldVisuals=visuals;const auto oldCamera=renderer.cameraState();
             const auto* originalSession=simulation.get();const auto revision=simulation->revision();
-            selectedBackend=active==BackendKind3D::Cpu?1:0;edited.nx=1000;running=true;
+            selectedBackend=active==BackendKind3D::Cpu?1:0;edited.nx=maxPhysicalNodesPerAxis3D+1;running=true;
             if(rebuild(true)||simulation.get()!=originalSession||simulation->revision()!=revision||!running)throw std::runtime_error("Failed backend switch mutated active session");
             edited=original;
             if(!rebuild(true)||simulation->backendInfo().kind==active||simulation->currentStep()!=0||running)throw std::runtime_error("Backend switch did not commit a fresh session");
@@ -435,9 +493,11 @@ struct Workbench3D {
     // Rebuilds a deterministic docking layout and preserves the user's custom layout between ordinary starts.
     void docking() {
         const auto* vp=ImGui::GetMainViewport();
+        if(lastParameterMode!=parameterHost.mode()){lastParameterMode=parameterHost.mode();resetLayout=true;}
         const int bucket=vp->WorkSize.x<1500?0:vp->WorkSize.x<1600?1:2;
-        if(layoutBucket!=-1&&layoutBucket!=bucket)resetLayout=true;layoutBucket=bucket;
-        if(layoutFontSize>0&&std::abs(layoutFontSize-ImGui::GetFontSize())>.5f)resetLayout=true;
+        const bool detached=ImGui::GetPlatformIO().Viewports.Size>1;
+        if(!detached&&layoutBucket!=-1&&layoutBucket!=bucket)resetLayout=true;layoutBucket=bucket;
+        if(!detached&&layoutFontSize>0&&std::abs(layoutFontSize-ImGui::GetFontSize())>.5f)resetLayout=true;
         layoutFontSize=ImGui::GetFontSize();
         const float statusHeight=ImGui::GetTextLineHeightWithSpacing()*2+ImGui::GetStyle().WindowPadding.y*2+4;
         ImGui::SetNextWindowPos({vp->WorkPos.x,vp->WorkPos.y+toolbarHeight});ImGui::SetNextWindowSize({vp->WorkSize.x,vp->WorkSize.y-statusHeight-toolbarHeight});ImGui::SetNextWindowViewport(vp->ID);
@@ -448,7 +508,7 @@ struct Workbench3D {
             ImGui::DockBuilderRemoveNode(dock);ImGui::DockBuilderAddNode(dock,ImGuiDockNodeFlags_DockSpace);
             ImGui::DockBuilderSetNodeSize(dock,{vp->WorkSize.x,vp->WorkSize.y-statusHeight-toolbarHeight});
             ImGuiID main=dock,controls=0,records=0,sections=0,xz=0,yz=0,xy=0;
-            ImGui::DockBuilderSplitNode(main,ImGuiDir_Left,std::clamp(ImGui::GetFontSize()*20.0f/vp->WorkSize.x,0.22f,0.38f),&controls,&main);
+            if(parameterHost.mode()!=1)ImGui::DockBuilderSplitNode(main,ImGuiDir_Left,std::clamp(ImGui::GetFontSize()*20.0f/vp->WorkSize.x,0.22f,0.38f),&controls,&main);
             const float availableHeight=vp->WorkSize.y-statusHeight-toolbarHeight;
             const float recordMinimum=ImGui::GetFrameHeight()*3+ImGui::GetTextLineHeightWithSpacing()+90;
             const float recordRatio=layoutPreset==3?.52f:std::clamp(recordMinimum/std::max(1.0f,availableHeight),0.24f,0.48f);
@@ -461,13 +521,14 @@ struct Workbench3D {
                 ImGui::DockBuilderSplitNode(left,ImGuiDir_Down,0.50f,&xy,&xz);
                 ImGui::DockBuilderSplitNode(right,ImGuiDir_Down,0.50f,&main,&yz);
             }
-            ImGui::DockBuilderDockWindow(label3D("Spatial exploration"),main);ImGui::DockBuilderDockWindow(label3D("Controls"),controls);
-            ImGui::DockBuilderDockWindow(label3D("Numerical diagnostics"),controls);
+            ImGui::DockBuilderDockWindow(label3D("Spatial exploration"),main);if(parameterHost.mode()!=1)ImGui::DockBuilderDockWindow(label3D("Controls"),controls);
+            if(parameterHost.mode()!=1)ImGui::DockBuilderDockWindow(label3D("Numerical diagnostics"),controls);
             ImGui::DockBuilderDockWindow(label3D("Inline X-Z"),xz);ImGui::DockBuilderDockWindow(label3D("Crossline Y-Z"),yz);ImGui::DockBuilderDockWindow(label3D("Depth X-Y"),xy);
             ImGui::DockBuilderDockWindow(label3D("Receiver records"),records);ImGui::DockBuilderFinish(dock);resetLayout=false;
         }
         ImGui::DockSpace(dock);ImGui::End();ImGui::PopStyleVar(2);
         ImGui::SetNextWindowPos({vp->WorkPos.x,vp->WorkPos.y+vp->WorkSize.y-statusHeight});ImGui::SetNextWindowSize({vp->WorkSize.x,statusHeight});
+        ImGui::SetNextWindowViewport(vp->ID);
         ImGui::Begin(label3D("Status##Fixed"),nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoDocking|ImGuiWindowFlags_NoScrollbar|ImGuiWindowFlags_NoScrollWithMouse);
         const auto backend=simulation->backendInfo();
         char engine[80];
@@ -480,12 +541,7 @@ struct Workbench3D {
     }
 
     bool themeSelector(const char* id,float width) {
-        ImGui::SetNextItemWidth(width);bool changed=false;
-        if(ImGui::BeginCombo(id,themeName3D(theme))) {
-            for(int i=0;i<themeCount3D;++i)if(ImGui::Selectable(themeName3D(i),theme==i)){theme=i;applyTheme3D(theme);changed=true;}
-            ImGui::EndCombo();
-        }
-        return changed;
+        return themeCombo3D(id,theme,width);
     }
     void toolbar() {
         dirty=edited!=simulation->parameters()||selectedBackend!=static_cast<int>(simulation->backendInfo().kind)||computeSettings!=activeComputeSettings;
@@ -495,6 +551,10 @@ struct Workbench3D {
             ImGui::TextColored(palette3D().accent,"SEIS3D");
             if(ImGui::BeginMenu(label3D("Workspace"))) {
                 if(ImGui::MenuItem(label3D("Reset layout [F]")))restoreWorkspace();
+                if(ImGui::BeginMenu(language3D()?"参数面板显示":"Parameter panels")){
+                    if(parameterHost.menu()){panels[0]=true;resetLayout=true;}
+                    ImGui::EndMenu();
+                }
                 ImGui::Separator();
                 for(int i=0;i<7;++i)ImGui::MenuItem(label3D(panelNames[i]),nullptr,&panels[i]);
                 ImGui::Separator();
@@ -504,7 +564,7 @@ struct Workbench3D {
             }
             if(ImGui::BeginMenu(label3D("Appearance"))) {
                 ImGui::TextUnformatted(tr3D("Interface font size (px)"));
-                ImGui::SliderFloat("##menuFont",&uiFontSize,16,28,"%.0f px");ImGui::EndMenu();
+                ImGui::SliderFloat("##menuFont",&uiFontSize,16,28,"%.0f px");glassAppearanceControls3D();ImGui::EndMenu();
             }
             const float languageWidth=std::max(140.0f,ImGui::GetFontSize()*7),themeWidth=std::max(185.0f,ImGui::GetFontSize()*11);
             const float right=ImGui::GetWindowWidth()-languageWidth-themeWidth-24;
@@ -536,10 +596,12 @@ struct Workbench3D {
         ImGui::End();
     }
 
-    // An epoch applies Expand/Collapse once to every group, including groups in tabs opened later.
+    // Start with only the compute core open, including tabs first visited later.
+    // Later epochs apply Expand/Collapse once to every group without resetting manual changes.
     bool group(const char* label,bool open=false) {
         const auto id=ImGui::GetID(label);
-        if(groupApplied[id]!=groupEpoch){ImGui::SetNextItemOpen(groupsExpanded,ImGuiCond_Always);groupApplied[id]=groupEpoch;}
+        auto [entry,firstVisit]=groupApplied.try_emplace(id,-1);
+        if(firstVisit||entry->second!=groupEpoch){ImGui::SetNextItemOpen(groupEpoch==0?std::strcmp(label,"Compute backend")==0:groupsExpanded,ImGuiCond_Always);entry->second=groupEpoch;}
         FunctionRole3D role=FunctionRole3D::Display;
         const std::string name=label;
         if(name.find("Grid")!=std::string::npos||name.find("Absorbing")!=std::string::npos)role=FunctionRole3D::Warning;
@@ -799,9 +861,23 @@ struct Workbench3D {
             ImGui::TextWrapped(tr3D("Disabling absorption leaves reflecting outer boundaries; it does not create an infinite domain."));
         }
     }
-    void controls() {
-        if(!panels[0])return;
-        if(!ImGui::Begin(label3D("Controls"),&panels[0])){ImGui::End();return;}
+    void controls() {if(parameterHost.mode()!=1)controlsPanel(false);}
+    void floatingControls() {
+        if(parameterHost.mode()==0)return;
+        std::swap(controlCategory,floatingCategory);std::swap(requestedTab,floatingRequestedTab);std::swap(nextRequestedTab,floatingNextRequestedTab);
+        controlsPanel(true);
+        std::swap(controlCategory,floatingCategory);std::swap(requestedTab,floatingRequestedTab);std::swap(nextRequestedTab,floatingNextRequestedTab);
+    }
+    void controlsPanel(bool floating) {
+        if(!floating&&!panels[0])return;
+        const char* title=floating?(language3D()?"悬浮参数 · 三维###FloatingParameters3D":"Floating parameters · 3D###FloatingParameters3D"):label3D("Controls");
+        if(floating)parameterHost.prepare(title);
+        bool open=true;
+        const bool visible=ImGui::Begin(title,floating?&open:&panels[0],floating?parameterHost.flags():0);
+        if(floating&&!open)SeisWave::Ui::setParameterDisplayMode(3,0);
+        if(!visible){ImGui::End();return;}
+        if(floating)parameterHost.tools();
+        if(!simulation||!simulation->initialized()){ImGui::TextWrapped("%s",error.c_str());homeRequested=true;ImGui::End();return;}
         const float footer=ImGui::GetFrameHeight()+ImGui::GetTextLineHeightWithSpacing()*2+16;
         if(nextRequestedTab>=0){requestedTab=nextRequestedTab;nextRequestedTab=-1;}
         if(requestedTab>=0)controlCategory=requestedTab==1||requestedTab==5||requestedTab==8?0:requestedTab==4||requestedTab==6?1:requestedTab==0||requestedTab==7?2:requestedTab==2?3:4;
@@ -854,16 +930,19 @@ struct Workbench3D {
                     const auto extent=nominalDimensions3D(edited);
                     ImGui::TextWrapped(tr3D("Staged grid span X/Y/depth: %s x %s x %s m"),formatMeasurement3D(extent[0]).c_str(),formatMeasurement3D(extent[1]).c_str(),formatMeasurement3D(extent[2]).c_str());
                     ImGui::TextWrapped(tr3D("Node span = (N - 1) * spacing; excludes ghost nodes. Apply rebuild for true terrain bounds."));
+                    ImGui::BeginDisabled(!edited.surfaceGrid.empty());
                     dirty|=parameter("Terrain amplitude (m)",edited.topographyAmplitude,1,"%.2f");
                     dirty|=parameter("Terrain wavelength (m)",edited.topographyWavelength,10,"%.1f");
+                    ImGui::EndDisabled();
                     dirty|=parameter("Flatten depth (m), 0 = auto",edited.terrainTransitionDepth,10,"%.1f");
-                    if(ImGui::Button(label3D("Flat"))){edited.topographyAmplitude=0;dirty=true;}ImGui::SameLine();
-                    if(ImGui::Button(label3D("Low relief"))){edited.topographyAmplitude=10;edited.terrainTransitionDepth=0;dirty=true;}ImGui::SameLine();
-                    if(ImGui::Button(label3D("Undulating"))){edited.topographyAmplitude=25;edited.topographyWavelength=240;edited.terrainTransitionDepth=0;dirty=true;}
+                    if(ImGui::Button(label3D("Flat"))){edited.surfaceGrid={};edited.topographyAmplitude=0;dirty=true;}ImGui::SameLine();
+                    if(ImGui::Button(label3D("Low relief"))){edited.surfaceGrid={};edited.topographyAmplitude=10;edited.terrainTransitionDepth=0;dirty=true;}ImGui::SameLine();
+                    if(ImGui::Button(label3D("Undulating"))){edited.surfaceGrid={};edited.topographyAmplitude=25;edited.topographyWavelength=240;edited.terrainTransitionDepth=0;dirty=true;}
                     ImGui::TextWrapped(tr3D("Terrain follows the surface only near the top. Deeper mesh layers and the bottom are horizontal."));
                     ImGui::TextDisabled(tr3D("Active flatten depth: %.1f m"),simulation->grid().terrainTransitionDepth);
-                    ImGui::TextWrapped(tr3D("Physical nodes: 8..300 per axis. Memory capacity also applies; no silent grid reduction."));
+                    ImGui::TextWrapped("%s",language3D()?"XYZ 动态分配，总预算含幽灵节点为 28,652,616；单轴安全上限 4096，仍受内存与几何约束。":"Dynamic XYZ allocation: 28,652,616 total padded nodes; axis safety cap 4096. Memory and geometry limits still apply.");
                 }
+                if(group(language3D()?"外部 DEM 地表高程":"External DEM surface",true))surfaceControls();
                 if(group("Elastic material")) {
                     ImGui::TextWrapped(tr3D("Configure uniform / layered properties in the Materials tab."));
                     if(functionButton3D("Open Materials",FunctionRole3D::Model,{-1,0}))nextRequestedTab=5;
@@ -916,6 +995,8 @@ struct Workbench3D {
                     ImGui::Checkbox(label3D("Show colorbars"),&visuals.showColorbar);
                     ImGui::Checkbox(label3D("Physical model dimensions"),&visuals.showDimensions);ImGui::Checkbox(label3D("Slice coordinates (m)"),&visuals.showCoordinates);
                     ImGui::TextUnformatted(tr3D("Grid opacity"));ImGui::SetNextItemWidth(-1);ImGui::SliderFloat("##gridOpacity",&visuals.gridOpacity,.05f,.8f,"%.2f");ImGui::Checkbox(label3D("Terrain wireframe"),&visuals.showTopography);
+                    ImGui::Checkbox(language3D()?"地表按高程着色":"Color terrain by elevation",&visuals.colorTopography);
+                    if(visuals.colorTopography){ImGui::SetNextItemWidth(-1);ImGui::Combo("##terrainPaletteSettings",&visuals.terrainPalette,choices3D(kTerrainPalettes3D));}
                     ImGui::Checkbox(label3D("Three planes in 3D"),&visuals.showSlices);ImGui::Checkbox(label3D("Receiver markers"),&visuals.showReceivers);
                     ImGui::SetNextItemWidth(-1);if(ImGui::Combo("##layout",&layoutPreset,choices3D("Balanced 2x2\0Spatial focus\0Tabbed views\0Records focus\0")))resetLayout=true;
                 }
@@ -950,7 +1031,7 @@ struct Workbench3D {
         ImGui::Separator();ImGui::TextWrapped(tr3D("Alternating MacCormack-DRP / traction-image surface / side-bottom sponge. Full CGFD3D waveform equivalence is pending."));
         ImGui::EndChild();
         if(functionButton3D(dirty?"Apply changes / rebuild":"Rebuild session",FunctionRole3D::Model,{-1,0}))(void)rebuild(true);
-        const auto& p=simulation->parameters();ImGui::TextWrapped(tr3D("%s | active %d x %d x %d"),tr3D(dirty?"Edits pending":"Ready"),p.nx,p.ny,p.nz);
+        if(simulation&&simulation->initialized()){const auto& p=simulation->parameters();ImGui::TextWrapped(tr3D("%s | active %d x %d x %d"),tr3D(dirty?"Edits pending":"Ready"),p.nx,p.ny,p.nz);}else ImGui::TextWrapped("%s",error.c_str());
         ImGui::End();
     }
 
@@ -980,7 +1061,7 @@ struct Workbench3D {
         stagedTimeStepSummary();
     }
     void diagnosticsWindow() {
-        if(!panels[1])return;
+        if(!panels[1]||parameterHost.mode()==1)return;
         if(!ImGui::Begin(label3D("Numerical diagnostics"),&panels[1])){ImGui::End();return;}samplingSummary();ImGui::Separator();
         {
             const auto& d=simulation->diagnostics();const auto backend=simulation->backendInfo();
@@ -1075,7 +1156,7 @@ struct Workbench3D {
         auto physical=[&](int a,int b) {const auto& xyz=grid.coordinates[coordinate(a,b)];return std::array<double,2>{xyz[axis==1?1:0],xyz[axis==2?1:2]};};
         for(int b=0;b<nv;++b)for(int a=0;a<nu;++a){const auto xy=physical(a,b);minU=std::min(minU,xy[0]);maxU=std::max(maxU,xy[0]);minV=std::min(minV,xy[1]);maxV=std::max(maxV,xy[1]);}
         const double fit=std::max(0.001,std::min((size.x-left-right)/(maxU-minU),(size.y-top-bottom)/(maxV-minV)))*view.zoom;
-        auto screen=[&](int a,int b) {const auto xy=physical(a,b);return ImVec2{center.x+view.pan[0]+static_cast<float>((xy[0]-(minU+maxU)*0.5)*fit),center.y+view.pan[1]+static_cast<float>((xy[1]-(minV+maxV)*0.5)*fit)};};
+        auto screen=[&](int a,int b) {const auto xy=physical(a,b);return ImVec2{center.x+view.pan[0]+static_cast<float>((xy[0]-(minU+maxU)*0.5)*fit),center.y+view.pan[1]+static_cast<float>(sliceVerticalOffset3D(xy[1],(minV+maxV)*.5,axis)*fit)};};
         auto* draw=ImGui::GetWindowDrawList();draw->AddRectFilled(origin,{origin.x+size.x,origin.y+size.y},color3D(palette3D().background));draw->PushClipRect(origin,{origin.x+size.x,origin.y+size.y},true);
         auto sliceColor=[&](int a,int b) {
             const int i=axis==1?*slice:a,j=axis==0?*slice:axis==1?a:b,k=axis==2?*slice:b;
@@ -1120,7 +1201,7 @@ struct Workbench3D {
             const int ticksU=(maxU-minU)*fit>=300?5:(maxU-minU)*fit>=100?3:2;
             const int ticksV=(maxV-minV)*fit>=200?5:(maxV-minV)*fit>=80?3:2;
             for(int n=0;n<ticksU;++n){const double value=minU+(maxU-minU)*n/(ticksU-1);const float x=center.x+view.pan[0]+static_cast<float>((value-(minU+maxU)*.5)*fit);if(x<axisX||x>origin.x+size.x-right)continue;const auto tick=formatMeasurement3D(value);const float w=ImGui::CalcTextSize(tick.c_str()).x;float labelX=x-w*.5f;if(ticksU==2&&(maxU-minU)*fit<80)labelX=n==0?x-w-3:x+3;draw->AddLine({x,baseline},{x,baseline+4},ink);draw->AddText({std::clamp(labelX,origin.x,origin.x+size.x-w),baseline+5},ink,tick.c_str());}
-            for(int n=0;n<ticksV;++n){const double value=minV+(maxV-minV)*n/(ticksV-1);const float y=center.y+view.pan[1]+static_cast<float>((value-(minV+maxV)*.5)*fit);if(y<origin.y+top-4||y>baseline)continue;const auto tick=formatMeasurement3D(value);const auto w=ImGui::CalcTextSize(tick.c_str());draw->AddLine({axisX-4,y},{axisX,y},ink);draw->AddText({std::max(origin.x,axisX-w.x-7),y-w.y*.5f},ink,tick.c_str());}
+            for(int n=0;n<ticksV;++n){const double value=minV+(maxV-minV)*n/(ticksV-1);const float y=center.y+view.pan[1]+static_cast<float>(sliceVerticalOffset3D(value,(minV+maxV)*.5,axis)*fit);if(y<origin.y+top-4||y>baseline)continue;const auto tick=formatMeasurement3D(value);const auto w=ImGui::CalcTextSize(tick.c_str());draw->AddLine({axisX-4,y},{axisX,y},ink);draw->AddText({std::max(origin.x,axisX-w.x-7),y-w.y*.5f},ink,tick.c_str());}
         }
         if(visuals.showAbsorbingLayer&&p.absorbingBoundary.enabled)draw->AddText({origin.x+7,origin.y+size.y-ImGui::GetTextLineHeight()-5},IM_COL32(230,145,30,255),tr3D("Amber overlay: absorbing region"));
         draw->PopClipRect();
@@ -1131,13 +1212,24 @@ struct Workbench3D {
 
     void spatialWindow() {
         if(!panels[2])return;
-        if(!ImGui::Begin(label3D("Spatial exploration"),&panels[2])){ImGui::End();return;}if(ImGui::SmallButton(label3D("Reset camera [R]")))renderer.resetCamera();ImGui::SameLine();ImGui::TextDisabled(tr3D("LMB orbit / wheel zoom / MMB pan"));
+        if(!ImGui::Begin(label3D("Spatial exploration"),&panels[2])){ImGui::End();return;}if(ImGui::SmallButton(label3D("Reset camera [R]")))renderer.resetCamera();
+        ImGui::SameLine();if(ImGui::SmallButton(language3D()?"DEM 俯视":"DEM top view"))renderer.topViewCamera();
+        ImGui::Checkbox(language3D()?"高程着色":"Elevation colors",&visuals.colorTopography);
+        if(visuals.colorTopography){ImGui::SameLine();ImGui::SetNextItemWidth(150);ImGui::Combo("##terrainPalette",&visuals.terrainPalette,choices3D(kTerrainPalettes3D));}
+        ImGui::TextDisabled(tr3D("LMB orbit / wheel zoom / MMB pan"));
         if(visuals.showDimensions)dimensionSummary(false);
         auto size=ImGui::GetContentRegionAvail();size.y-=colorbarHeight();
+        if(visuals.colorTopography&&visuals.showColorbar)size.y-=2*ImGui::GetTextLineHeightWithSpacing()+24;
         if(size.x>16 && size.y>16) {
             const auto& io=ImGui::GetIO();
-            if(refreshDisplayFrame() && renderer.render(*simulation,displayFrame,modelFrame,visuals,slices,static_cast<int>(size.x*io.DisplayFramebufferScale.x),static_cast<int>(size.y*io.DisplayFramebufferScale.y),error)) {
+            const auto scale=ImGui::GetWindowViewport()->FramebufferScale;
+            if(refreshDisplayFrame() && renderer.render(*simulation,displayFrame,modelFrame,visuals,slices,static_cast<int>(size.x*scale.x),static_cast<int>(size.y*scale.y),error)) {
                 ImGui::Image(static_cast<ImTextureID>(renderer.texture3D()),size,{0,1},{1,0});
+                const auto corner=ImGui::GetItemRectMin();const auto axes=renderer.orientationAxes();
+                auto* draw=ImGui::GetWindowDrawList();const ImVec2 base{corner.x+48,corner.y+48};
+                const ImU32 inks[]{IM_COL32(240,95,75,255),IM_COL32(70,195,120,255),IM_COL32(80,155,255,255)};
+                const char* names[]{"+X","+Y","Up"};
+                for(int a=0;a<3;++a){const ImVec2 end{base.x+30*axes[a][0],base.y+30*axes[a][1]};draw->AddLine(base,end,inks[a],2);draw->AddText({end.x+3,end.y-8},inks[a],names[a]);}
                 if(ImGui::IsItemHovered()) {
                     if(ImGui::IsMouseDragging(ImGuiMouseButton_Left))renderer.orbit(io.MouseDelta.x,io.MouseDelta.y);
                     if(ImGui::IsMouseDragging(ImGuiMouseButton_Middle))renderer.pan(io.MouseDelta.x,io.MouseDelta.y);
@@ -1148,7 +1240,21 @@ struct Workbench3D {
             } else {running=false;ImGui::TextWrapped(tr3D("%s"),error.c_str());}
         }
         colorbar();
+        if(visuals.colorTopography&&visuals.showColorbar)terrainColorbar();
         ImGui::End();
+    }
+
+    void terrainColorbar() {
+        ImGui::TextUnformatted(language3D()?(simulation->parameters().surfaceGrid.empty()?"相对高程 (m)":"DEM 高程 (m)"):
+            (simulation->parameters().surfaceGrid.empty()?"Relative elevation (m)":"DEM elevation (m)"));
+        const auto at=ImGui::GetCursorScreenPos();const float width=ImGui::GetContentRegionAvail().x;
+        const float margin=25,bar=std::max(1.f,width-2*margin);auto* draw=ImGui::GetWindowDrawList();
+        for(int n=0;n<128;++n){const double h=visuals.terrainLow+(visuals.terrainHigh-visuals.terrainLow)*n/127.;
+            draw->AddRectFilled({at.x+margin+bar*n/128,at.y},{at.x+margin+bar*(n+1)/128,at.y+10},packedColor3D(terrainColor3D(h,visuals)));}
+        for(int n=0;n<3;++n){char text[48];std::snprintf(text,sizeof(text),"%.3f",visuals.terrainLow+(visuals.terrainHigh-visuals.terrainLow)*n/2);
+            const float x=at.x+margin+bar*n/2,w=ImGui::CalcTextSize(text).x;
+            draw->AddText({std::clamp(x-w*.5f,at.x,at.x+std::max(0.f,width-w)),at.y+14},color3D(palette3D().text),text);}
+        ImGui::Dummy({width,20+ImGui::GetTextLineHeight()});
     }
 
     void records() {recordView.draw(*simulation,selectedReceiver,&panels[6]);}
@@ -1159,6 +1265,7 @@ struct Workbench3D {
         visuals.range=visuals.component==4?visuals.stressReference:visuals.velocityReference;
         if(visuals.autoRange)visuals.range=std::max(1.0e-15,simulation->diagnostics().displayPeaks[visuals.component==4?4:3]);
         updateMaterialRange3D(visuals,simulation->parameters());
+        updateTerrainRange3D(visuals,simulation->grid(),simulation->parameters());
     }
     void shortcuts() {
         if(ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive()||ImGui::IsPopupOpen(nullptr,ImGuiPopupFlags_AnyPopupId|ImGuiPopupFlags_AnyPopupLevel))return;
@@ -1199,7 +1306,53 @@ bool captureFrame3D(const std::filesystem::path& output,int width,int height) {
     for(int y=height-1;y>=0;--y)out.write(reinterpret_cast<const char*>(pixels.data()+static_cast<std::size_t>(y)*width*3),static_cast<std::streamsize>(width)*3);
     return out.good();
 }
+// Real OpenGL readback of asymmetric imported terrain: verifies screen X/Y,
+// absolute height colors, the shared wave palette library and the off switch.
+bool terrainReview3D(Workbench3D& app) {
+    const auto directory=outputRoot3D()/"validation/terrain-display";
+    std::filesystem::create_directories(directory);
+    app.visuals.showSlices=app.visuals.showTopography=app.visuals.showReceivers=false;
+    app.visuals.colorTopography=true;app.updateRange();app.renderer.topViewCamera();
+    if(!app.refreshDisplayFrame())return false;
+    constexpr int width=900,height=700;
+    const auto& p=app.simulation->parameters();const auto& grid=app.simulation->grid();const int g=grid.ghost;
+    const double lx=(p.nx-1)*p.spacing,ly=(p.ny-1)*p.spacing,lz=(p.nz-1)*p.spacing;
+    const double scale=std::max({lx,ly,lz+2*std::abs(grid.topographyAmplitude)});
+    const auto revision=app.simulation->revision();
+    for(int palette=0;palette<wavePaletteCount3D;++palette) {
+        app.visuals.terrainPalette=palette;
+        if(!app.renderer.render(*app.simulation,app.displayFrame,app.modelFrame,app.visuals,app.slices,width,height,app.error))return false;
+        std::vector<unsigned char> rgba(static_cast<std::size_t>(width)*height*4);
+        glBindTexture(GL_TEXTURE_2D,app.renderer.texture3D());glGetTexImage(GL_TEXTURE_2D,0,GL_RGBA,GL_UNSIGNED_BYTE,rgba.data());
+        std::ofstream out(directory/("terrain_top_"+std::to_string(palette)+".ppm"),std::ios::binary);
+        out<<"P6\n"<<width<<' '<<height<<"\n255\n";
+        for(int y=height-1;y>=0;--y)for(int x=0;x<width;++x)out.write(reinterpret_cast<const char*>(rgba.data()+(static_cast<std::size_t>(y)*width+x)*4),3);
+        if(!out.good())return false;
+        for(int j:{p.ny/4,p.ny*3/4})for(int i:{p.nx/4,p.nx*3/4}) {
+            const auto& pos=grid.coordinates[grid.index(i+g,j+g,g)];const auto world=scenePosition3D(pos,lx,ly,lz,scale);
+            const double cot=1/std::tan(.42),depth=app.renderer.cameraState()[2]-world[1];
+            const int x=static_cast<int>((1+cot*height/width*world[0]/depth)*width*.5);
+            const int y=static_cast<int>((1-cot*world[2]/depth)*height*.5);
+            if(x<0||x>=width||y<0||y>=height){app.error="Terrain review sample outside viewport";return false;}
+            const auto expected=terrainColor3D(terrainElevation3D(pos[2],p),app.visuals);
+            for(int c=0;c<3;++c)if(std::abs(rgba[(static_cast<std::size_t>(y)*width+x)*4+c]/255.-expected[c])>.045) {
+                app.error="Terrain screen corner or absolute-elevation color mismatch";return false;
+            }
+        }
+    }
+    app.visuals.colorTopography=false;
+    if(!app.renderer.render(*app.simulation,app.displayFrame,app.modelFrame,app.visuals,app.slices,width,height,app.error))return false;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER,0);
+    std::vector<unsigned char> rgba(static_cast<std::size_t>(width)*height*4);
+    glBindTexture(GL_TEXTURE_2D,app.renderer.texture3D());glGetTexImage(GL_TEXTURE_2D,0,GL_RGBA,GL_UNSIGNED_BYTE,rgba.data());
+    for(int c=0;c<3;++c)if(std::abs(rgba[(height/3*width+width/3)*4+c]/255.-app.visuals.canvas[c])>.01){app.error="Terrain off switch failed";return false;}
+    if(app.simulation->revision()!=revision){app.error="Terrain display changed simulation state";return false;}
+    std::cout<<"Terrain display PASS: "<<wavePaletteCount3D<<" shared palettes, "<<4*wavePaletteCount3D<<" screen corner samples, elevation sign and off switch\n";
+    return glGetError()==GL_NO_ERROR;
+}
 #include "WorkflowCapture3D.inc"
+#include "ViewportValidation3D.inc"
+#include "ThemePanelValidation3D.inc"
 }
 
 // Runs a self-contained OpenGL/ImGui workspace; --smoke simulates, captures and exits for automated startup checks.
@@ -1215,21 +1368,25 @@ int runWorkbench3D(int argc,char** argv) {
     const bool colorbarSmoke=mode=="--smoke-colorbar";
     const bool cflSmoke=mode=="--smoke-cfl";
     const bool modelDisplaySmoke=mode=="--smoke-model-display";
+    const bool terrainSmoke=mode=="--smoke-terrain";
     const bool commandSmoke=mode=="--smoke-commands";
     const bool gridConfigSmoke=mode=="--smoke-grid-config";
     const bool workflowCapture=mode=="--capture-workflow";
     const bool acquisitionSmoke=mode=="--smoke-acquisition";
     const bool layersSmoke=mode=="--smoke-layers";
     const bool workspaceSmoke=mode=="--smoke-workspace";
+    const bool viewportSmoke=mode=="--smoke-viewports";
+    const bool themeSmoke=mode=="--smoke-themes";
     const bool recordsSmoke=mode=="--smoke-records";
     const bool uiSmoke=mode=="--smoke-ui" || sourceSmoke || recordsSmoke || workspaceSmoke || layersSmoke || acquisitionSmoke || navigationSmoke || boundarySmoke || colorbarSmoke || cflSmoke || modelDisplaySmoke || gridConfigSmoke;
-    const bool smoke=mode=="--smoke" || resizeSmoke || cudaSmoke || uiSmoke || commandSmoke || workflowCapture || routeSmoke;
+    const bool smoke=mode=="--smoke" || terrainSmoke || resizeSmoke || cudaSmoke || uiSmoke || commandSmoke || workflowCapture || routeSmoke || viewportSmoke || themeSmoke;
     std::string catalogError;
     if(!validateCatalog3D(catalogError)){std::cerr<<catalogError<<'\n';return 1;}
     std::error_code ec;std::filesystem::create_directories(outputRoot3D()/"ui",ec);
     if(ec){std::cerr<<ec.message()<<'\n';return 1;}
+    if(smoke)SeisWave::Ui::setParameterDisplayMode(3,0);
     SeisWave::Ui::AppRuntime host;std::string hostError;
-    if(!host.open("SeisWave Lab · Curvilinear | 3D | CPU / CUDA",smoke,hostError)){std::cerr<<hostError<<'\n';return 2;}
+    if(!host.open("SeisWave Lab · Curvilinear | 3D | CPU / CUDA",smoke,hostError,!smoke||viewportSmoke)){std::cerr<<hostError<<'\n';return 2;}
     GLFWwindow* window=host.window();auto& io=ImGui::GetIO();
     const std::string ini=utf8Path3D(outputRoot3D()/"ui"/(smoke?"smoke.ini":"workspace.ini"));io.IniFilename=smoke?nullptr:ini.c_str();
     bool returnToHome=false;
@@ -1244,12 +1401,23 @@ int runWorkbench3D(int argc,char** argv) {
         if(colorbarSmoke){app.edited=applyModelPreset3D(0,app.edited);app.visuals.autoRange=true;}
         if(layersSmoke||modelDisplaySmoke){app.edited=applyMaterialPreset3D(1,app.edited);app.materialPreset=1;app.edited.nx=100;app.edited.ny=20;app.edited.nz=100;app.edited.spacing=1;app.edited.topographyAmplitude=2;app.edited.topographyWavelength=60;app.edited.maxSteps=40;app.visuals.displayMode=1;}
         if(modelDisplaySmoke){app.edited.maxSteps=0;app.edited.duration=.12;app.edited.dominantFrequency=30;app.edited.sourceZ=20;app.visuals.autoRange=true;app.visuals.showGrid=false;}
+        if(terrainSmoke) {
+            auto& p=app.edited;p.nx=65;p.ny=49;p.nz=35;p.spacing=20;p.topographyAmplitude=0;p.dominantFrequency=2;p.maxSteps=2;
+            auto& d=p.surfaceGrid;d.nx=p.nx;d.ny=p.ny;d.spacing=p.spacing;d.datum=1500;
+            for(int j=0;j<d.ny;++j)for(int i=0;i<d.nx;++i)d.elevations.push_back(1470+.7*i+.2*j);
+            if(argc>2){if(!readSurfaceGrid3D(fromUtf8Path3D(argv[2]),d,app.error)){std::cerr<<app.error<<'\n';return 12;}
+                SimulationParameters next;p.spacing=d.spacing;p.nx=d.nx;p.ny=d.ny;
+                const BackendMemory3D budget{512ull*1024*1024,512ull*1024*1024};
+                if(!fitSurfaceModel3D(p,static_cast<BackendKind3D>(app.selectedBackend),budget,next,app.error)){std::cerr<<app.error<<'\n';return 12;}p=std::move(next);}
+        }
         const auto sessionExportRoot=smoke?outputRoot3D()/"validation/three-d-smoke":outputRoot3D();
         if(smoke)std::filesystem::create_directories(sessionExportRoot);
         std::snprintf(app.modelPath.data(),app.modelPath.size(),"%s",utf8Path3D(sessionExportRoot/"curvilinear_model.vts").c_str());
         std::snprintf(app.vtsPath.data(),app.vtsPath.size(),"%s",utf8Path3D(sessionExportRoot/"curvilinear_snapshot.vts").c_str());
         std::snprintf(app.csvPath.data(),app.csvPath.size(),"%s",utf8Path3D(sessionExportRoot/"receiver_traces.csv").c_str());
         if(!app.rebuild(true)||!app.renderer.initialize(executableDirectory3D(argv[0])/"shaders",app.error)){std::cerr<<app.error<<'\n';result=6;}
+        if(terrainSmoke){if(result==0&&!terrainReview3D(app)){std::cerr<<app.error<<'\n';return 12;}
+            if(result)return result;app.visuals.colorTopography=true;app.visuals.terrainPalette=7;app.layoutPreset=1;app.resetLayout=true;app.requestedTab=2;setLanguage3D(1);}
         if(result==0&&smoke&&!acquisitionSmoke&&!cudaSmoke&&app.simulation->backendInfo().kind!=defaultBackend3D()){std::cerr<<"Application default backend not selected\n";result=12;}
         if(result==0 && resizeSmoke && !app.verifyResizePolicy()){std::cerr<<app.error<<'\n';result=7;}
         if(result==0 && (resizeSmoke||cudaSmoke) && !app.verifyBackendPolicy()){std::cerr<<app.error<<'\n';result=7;}
@@ -1297,6 +1465,8 @@ int runWorkbench3D(int argc,char** argv) {
             if(!colorbarSmoke)app.exportSnapshot();if(app.error.empty())app.exportTraces();
             if(!app.error.empty()){std::cerr<<app.error<<'\n';result=7;}
         }
+        if(result==0&&viewportSmoke){const bool okay=verifyViewports3D(app,host);if(!okay)std::cerr<<app.error<<'\n';app.renderer.shutdown();return okay?0:16;}
+        if(result==0&&themeSmoke){const bool okay=verifyThemePanels3D(app,host);if(!okay)std::cerr<<app.error<<'\n';app.renderer.shutdown();return okay?0:17;}
         int frame=0;
         struct UiCase {int width,height,language,theme,layout;float font;};
         const UiCase uiCases[]{
@@ -1351,7 +1521,7 @@ int runWorkbench3D(int argc,char** argv) {
             if((workspaceSmoke||layersSmoke)&&frame%10==5&&!(layersSmoke&&frame/10==8))ImGui::SetWindowFocus(label3D("Inline X-Z"));
             if(workspaceSmoke&&frame==2)app.panels.fill(false);
             if(workspaceSmoke&&frame==4)app.restoreWorkspace();
-            if(glfwGetWindowAttrib(window,GLFW_ICONIFIED)){glfwWaitEventsTimeout(0.05);continue;}
+            if(glfwGetWindowAttrib(window,GLFW_ICONIFIED)&&ImGui::GetPlatformIO().Viewports.Size<=1){glfwWaitEventsTimeout(0.05);continue;}
             if(app.running) {
                 const auto begin=std::chrono::steady_clock::now();
                 const int startStep=app.simulation->currentStep();
@@ -1387,7 +1557,9 @@ int runWorkbench3D(int argc,char** argv) {
             }
             ImGui::NewFrame();
             ImGui::PushFont(nullptr,app.uiFontSize);
-            app.gridSegments.fill(0);app.toolbar();app.docking();app.controls();app.diagnosticsWindow();app.updateRange();app.spatialWindow();app.sliceWindow(0,"Inline X-Z");app.sliceWindow(1,"Crossline Y-Z");app.sliceWindow(2,"Depth X-Y");app.records();app.shortcuts();app.shortcutWindow();
+            app.gridSegments.fill(0);app.toolbar();app.docking();app.controls();
+            if(app.simulation&&app.simulation->initialized()){app.diagnosticsWindow();app.updateRange();app.spatialWindow();app.sliceWindow(0,"Inline X-Z");app.sliceWindow(1,"Crossline Y-Z");app.sliceWindow(2,"Depth X-Y");app.records();app.floatingControls();app.shortcuts();app.shortcutWindow();}
+            else {app.running=false;app.homeRequested=true;}
             ImGui::PopFont();
             if(commandSmoke&&frame==2){const auto* help=ImGui::FindWindowByName(label3D("Keyboard shortcuts"));if(!app.shortcutHelp||!help||!help->Active){std::cerr<<"F1 failed to open shortcut help\n";result=12;}}
             if(commandSmoke&&frame==7) {
@@ -1425,8 +1597,9 @@ int runWorkbench3D(int argc,char** argv) {
                 std::cout<<"UI capture "<<base<<" theme="<<c.theme<<" font="<<c.font<<" layout="<<c.layout<<" panel="<<(frame/10)%5<<" | presentation invariant "<<(result==0?"PASS":"FAIL")<<'\n';
                 if(frame/10==static_cast<int>(std::size(uiCases))-1)glfwSetWindowShouldClose(window,GLFW_TRUE);
             }
-            if(smoke && !uiSmoke && frame==7) {
-                if(!captureFrame3D(outputRoot3D()/(commandSmoke?"commands_smoke.ppm":"gui_smoke.ppm"),width,height))result=8;
+            host.renderPlatformWindows();
+            if(smoke && !uiSmoke && !viewportSmoke && frame==7) {
+                if(!captureFrame3D(outputRoot3D()/(terrainSmoke?"validation/terrain-display/terrain_workspace.ppm":commandSmoke?"commands_smoke.ppm":"gui_smoke.ppm"),width,height))result=8;
                 const auto glError=glGetError();if(glError!=GL_NO_ERROR){std::cerr<<"OpenGL error: "<<glError<<'\n';result=9;}
                 if(!app.error.empty()){std::cerr<<app.error<<'\n';result=10;}
                 std::cout<<"GUI smoke: "<<(app.simulation->backendInfo().kind==BackendKind3D::Cuda?"CUDA":"CPU")<<" step "<<app.simulation->currentStep()<<" / "<<app.simulation->totalSteps()<<" | framebuffer "<<width<<'x'<<height<<" | traction-rate residual "<<app.simulation->diagnostics().maxTractionRateRelative<<'\n';

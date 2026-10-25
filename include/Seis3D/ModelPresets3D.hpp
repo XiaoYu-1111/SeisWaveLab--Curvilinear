@@ -22,6 +22,7 @@ inline SimulationParameters applyModelPreset3D(int index,const SimulationParamet
     const auto& preset=modelPresets3D[index];auto next=resizeModel3D(current,{preset.nx,preset.ny,preset.nz});
     next.nx=preset.nx;next.ny=preset.ny;next.nz=preset.nz;next.spacing=preset.spacing;
     next.topographyAmplitude=preset.relief;next.topographyWavelength=preset.wavelength;next.terrainTransitionDepth=0;
+    next.surfaceGrid={};
     if(index==0) {
         // Complete, reproducible case from the raw-field comparison figure.
         next.vp=3000;next.vs=1700;next.density=2200;next.layeredMaterial=false;next.layers.clear();next.layerDepthMode=LayerDepthMode3D::GridIndex;
@@ -43,6 +44,8 @@ inline ModelMemory3D estimateModelMemory3D(const SimulationParameters& p) {
     result.cpuMiB=(result.points*((p.layeredMaterial?84.0:81.0)+(p.source.kind==SeisWave::SourceKind::IsotropicMoment?3:0))*sizeof(double)+receiverBytes)/(1024*1024);
     result.cudaHostMiB=(result.points*((p.layeredMaterial?21.0:18.0)+(p.source.kind==SeisWave::SourceKind::IsotropicMoment?3:0))*sizeof(double)+receiverBytes+(result.points+127)/128*72.0)/(1024*1024);
     result.deviceMiB=(result.points*((p.layeredMaterial?81.0:78.0)+(p.source.kind==SeisWave::SourceKind::IsotropicMoment?3:0))*sizeof(double)+(result.points+127)/128*72.0)/(1024*1024);
+    const double demCopies=3.0*p.surfaceGrid.elevations.size()*sizeof(double)/(1024*1024);
+    result.cpuMiB+=demCopies;result.cudaHostMiB+=demCopies;
     result.withinBudget=result.points<=maxPaddedNodes3D;return result;
 }
 inline bool fitsMemory3D(const ModelMemory3D& m,BackendKind3D kind,const BackendMemory3D& available) {
@@ -76,5 +79,46 @@ inline bool fitModelToMemory3D(const SimulationParameters& requested,BackendKind
     if(!fitsMemory3D(estimateModelMemory3D(candidate(0)),kind,available))return false;
     double low=0,high=1;for(int n=0;n<40;++n){const double middle=(low+high)*.5;if(fitsMemory3D(estimateModelMemory3D(candidate(middle)),kind,available))low=middle;else high=middle;}
     fitted=candidate(fitsMemory3D(estimateModelMemory3D(candidate(1)),kind,available)?1:low);return true;
+}
+
+// Preserve the DEM's physical region while spending nodes primarily on X/Y;
+// derive the smallest conservative Z depth from relief and ghost extension.
+// Original elevations stay embedded in parameters; only the numerical grid is sampled.
+inline bool fitSurfaceModel3D(const SimulationParameters& requested,BackendKind3D kind,
+                             const BackendMemory3D& available,SimulationParameters& fitted,std::string& error) {
+    const auto& d=requested.surfaceGrid;
+    if(d.empty()||!d.validate(error))return false;
+    const int minimum=requested.source.kind==SeisWave::SourceKind::IsotropicMoment?11:8;
+    const double maxH=std::min(d.width(),d.height())/(minimum-1);
+    if(maxH<d.spacing){error="DEM does not have enough samples for this source mechanism.";return false;}
+    double baseRelief=0;
+    for(double z:d.elevations)baseRelief=std::max(baseRelief,std::abs(d.datum-z));
+    auto candidate=[&](double scale) {
+        const double h=std::min(maxH,d.spacing/std::max(scale,1e-12));
+        const int nx=std::clamp(static_cast<int>(std::floor(d.width()/h+1e-8))+1,minimum,maxPhysicalNodesPerAxis3D);
+        const int ny=std::clamp(static_cast<int>(std::floor(d.height()/h+1e-8))+1,minimum,maxPhysicalNodesPerAxis3D);
+        double relief=baseRelief;
+        auto include=[&](int i,int j){relief=std::max(relief,std::abs(d.displacement(i*h,j*h)));};
+        for(int j=-ghostWidth3D;j<ny+ghostWidth3D;++j){include(-ghostWidth3D,j);include(nx-1+ghostWidth3D,j);}
+        for(int i=-ghostWidth3D;i<nx+ghostWidth3D;++i){include(i,-ghostWidth3D);include(i,ny-1+ghostWidth3D);}
+        const double depth=std::max(6*h,3.2*relief+2*h);
+        const double layers=std::ceil(depth/h)+1;
+        auto next=resizeModel3D(requested,{nx,ny,static_cast<int>(std::min<double>(maxPhysicalNodesPerAxis3D,layers))});
+        if(!std::isfinite(layers)||layers>maxPhysicalNodesPerAxis3D)next.nz=maxPhysicalNodesPerAxis3D+1;
+        next.spacing=h;next.topographyAmplitude=0;next.terrainTransitionDepth=0;
+        return next;
+    };
+    auto smallest=candidate(0);
+    if(!fitsMemory3D(estimateModelMemory3D(smallest),kind,available)){
+        error="Even the minimum terrain-following grid exceeds the current total-node/memory budget.";return false;
+    }
+    // Search horizontal sampling density under the budget. The final backend
+    // independently validates coverage, transition depth and Jacobian.
+    double low=0,high=1;
+    for(int n=0;n<32;++n){const double mid=(low+high)*.5;const auto p=candidate(mid);
+        if(fitsMemory3D(estimateModelMemory3D(p),kind,available))low=mid;else high=mid;}
+    auto native=candidate(1);
+    fitted=fitsMemory3D(estimateModelMemory3D(native),kind,available)?std::move(native):candidate(low);
+    error.clear();return true;
 }
 }

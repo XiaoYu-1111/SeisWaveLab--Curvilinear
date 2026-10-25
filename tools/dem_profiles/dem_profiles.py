@@ -640,18 +640,173 @@ def plot_profile(table, ax, *, height_view='absolute', annotate=True, spacing_m=
     return reference
 
 
+def surface_grid_geometry(dem, roi, nx=300, ny=None, *, spacing_m=None, endpoint=False):
+    """Plan square spacing without allocating an array.
+
+    With ny=None the exact ROI is retained: X count determines h and Y count is
+    derived. Default sampling is [start, end), so 1000 m / 500 points = 2 m.
+    Explicit nx,ny retains the legacy centred-inscribed shape option.
+    """
+    if dem.xy_factor is None:
+        raise ValueError('区域导出需要已确认的水平长度单位，不能将经纬度直接作为米。')
+    bounds=np.asarray(roi,dtype=float)
+    if bounds.shape!=(4,) or not np.isfinite(bounds).all():
+        raise ValueError('区域范围应为有限的 xmin,xmax,ymin,ymax。')
+    xmin,xmax,ymin,ymax=map(float,bounds)
+    if xmin>=xmax or ymin>=ymax:
+        raise ValueError('区域宽度与高度必须为正。')
+    width_requested,height_requested=(xmax-xmin)*dem.xy_factor,(ymax-ymin)*dem.xy_factor
+    def count(value):
+        if isinstance(value,(bool,np.bool_)) or not np.isfinite(value) or int(value)!=value or not 2<=value<=4096:
+            raise ValueError('区域数组每轴须为 2..4096 个整数点。')
+        return int(value)
+    def axis_count(length,h):
+        ratio=length/h
+        # Absorb numerical noise only near integer boundaries.
+        if abs(ratio-round(ratio))<1e-9:ratio=float(round(ratio))
+        return int(np.floor(ratio))+1 if endpoint else int(np.ceil(ratio))
+    inset=spacing_m is None and ny is not None
+    if spacing_m is not None:
+        h=float(spacing_m)
+    else:
+        nx=count(nx)
+        h=width_requested/(nx-int(endpoint))
+        if ny is not None:
+            ny=count(ny)
+            h=min(h,height_requested/(ny-int(endpoint)))
+    if not np.isfinite(h) or h<1e-4:
+        raise ValueError('区域太小，计算采样间距不足 0.0001 m，请扩大区域或减少点数。')
+    if spacing_m is not None:nx=axis_count(width_requested,h)
+    if not inset:ny=axis_count(height_requested,h)
+    nx,ny=count(nx),count(ny)
+    if nx*ny>4000000:
+        raise ValueError('总高程点数不超过 4,000,000；请增大间距或缩小区域。')
+    width,height=(nx-1)*h,(ny-1)*h
+    footprint_width,footprint_height=(nx-int(endpoint))*h,(ny-int(endpoint))*h
+    x0=(xmin+xmax-footprint_width/dem.xy_factor)/2 if inset else xmin
+    y0=(ymin+ymax-footprint_height/dem.xy_factor)/2 if inset else ymin
+    return dict(nx=nx,ny=ny,spacing_m=h,origin_x_m=x0*dem.xy_factor,origin_y_m=y0*dem.xy_factor,
+                width_m=width,height_m=height,requested_width_m=width_requested,requested_height_m=height_requested,
+                requested_roi_source=bounds.tolist(),
+                sampled_roi_source=[x0,x0+width/dem.xy_factor,y0,y0+height/dem.xy_factor],
+                extent_policy='centred inscribed footprint' if inset else 'exact ROI; samples anchored at minimum X/Y',
+                endpoint_included=bool(endpoint),
+                sampling_convention='L/(N-1); boundary included only when divisible by h' if endpoint else 'L/N; upper boundary excluded')
+
+
+def sample_surface_grid(dem, roi, nx=300, ny=None, method='bilinear', *, spacing_m=None, endpoint=False):
+    """Sample absolute elevations with shared X/Y spacing and explicit endpoints."""
+    geometry=surface_grid_geometry(dem,roi,nx,ny,spacing_m=spacing_m,endpoint=endpoint)
+    nx,ny,h=geometry['nx'],geometry['ny'],geometry['spacing_m']
+    x0,y0=geometry['origin_x_m']/dem.xy_factor,geometry['origin_y_m']/dem.xy_factor
+    x=x0+np.arange(nx)*h/dem.xy_factor
+    y=y0+np.arange(ny)*h/dem.xy_factor
+    xx,yy=np.meshgrid(x,y)
+    values=dem.sample(xx.ravel(),yy.ravel(),method=method).reshape(ny,nx)
+    if not np.isfinite(values).all():
+        raise ValueError('二维区域包含 NoData 或超界高程。请移动 / 缩小区域，不会自动填零或只保留某一条有效剖面。')
+    info=dict(format='VTK_XML_SURFACE',version=1,**geometry,
+              datum_elevation_m=float(values.mean()),
+              row_order='Y increasing; first row is minimum Y (south)',column_order='X increasing',
+              elevation_range_m=[float(values.min()),float(values.max())],interpolation=method,
+              height_processing='source metre elevations; no smoothing or shift',model_z='datum - elevation; Z positive down',
+              note='Output sampling does not improve native DEM resolution.',dem=dem.info())
+    return values,info
+
+
+def surface_grid_stem(info):
+    """The name is descriptive; the VTK file retains full spacing precision."""
+    return f'surface_grid_{info["nx"]}x{info["ny"]}_h{info["spacing_m"]:.12g}m'
+
+
+def write_surface_grid(values,info,folder,formats=('vti','vts')):
+    formats=(formats,) if isinstance(formats,str) else tuple(formats)
+    if not formats or len(set(formats))!=len(formats) or any(f not in ('vti','vts') for f in formats):
+        raise ValueError('地表数据只支持 vti、vts 或两者同时导出。')
+    nx,ny=info['nx'],info['ny']
+    if not (2<=nx<=4096 and 2<=ny<=4096 and nx*ny<=4000000) or np.shape(values)!=(ny,nx) or not np.isfinite(values).all() or np.max(np.abs(values))>1e7:
+        raise ValueError('区域数组形状或高程值无效。')
+    h,x0,y0,datum=(float(info[k]) for k in ('spacing_m','origin_x_m','origin_y_m','datum_elevation_m'))
+    if not np.isfinite([h,x0,y0,datum]).all() or h<=0:raise ValueError('间距、坐标原点或高程基准无效。')
+    folder=Path(folder);folder.mkdir(parents=True,exist_ok=True)
+    stem=surface_grid_stem(info)
+    extent=f'0 {nx-1} 0 {ny-1} 0 0'
+    for suffix in formats:
+        kind='ImageData' if suffix=='vti' else 'StructuredGrid'
+        with (folder/f'{stem}.{suffix}').open('w',encoding='utf-8',newline='\n') as stream:
+            stream.write(f'<?xml version="1.0"?>\n<VTKFile type="{kind}" version="1.0" byte_order="LittleEndian">\n')
+            attrs=f' Origin="{x0:.17g} {y0:.17g} 0" Spacing="{h:.17g} {h:.17g} 1"' if suffix=='vti' else ''
+            stream.write(f'<{kind} WholeExtent="{extent}"{attrs}>\n<FieldData>\n')
+            for name,value in (('ElevationDatum_m',datum),('HorizontalSpacing_m',h),('HorizontalUnitMetres',1),('ElevationUnitMetres',1),('ElevationPositiveUp',1)):
+                stream.write(f'<DataArray type="Float64" Name="{name}" NumberOfComponents="1" NumberOfTuples="1" format="ascii">{value:.17g}</DataArray>\n')
+            stream.write(f'</FieldData>\n<Piece Extent="{extent}">\n<PointData Scalars="Elevation">\n'
+                         '<DataArray type="Float64" Name="Elevation" NumberOfComponents="1" format="ascii">\n')
+            np.savetxt(stream,values,fmt='%.17g')
+            stream.write('</DataArray>\n</PointData>\n<CellData/>\n')
+            if suffix=='vts':
+                stream.write('<Points>\n<DataArray type="Float64" NumberOfComponents="3" format="ascii">\n')
+                x=x0+np.arange(nx)*h
+                for j in range(ny):np.savetxt(stream,np.column_stack((x,np.full(nx,y0+j*h),values[j])),fmt='%.17g')
+                stream.write('</DataArray>\n</Points>\n')
+            stream.write(f'</Piece>\n</{kind}>\n</VTKFile>\n')
+    np.savetxt(folder/f'{stem}_elevations.csv',values,delimiter=',',fmt='%.17g')
+    saved=dict(info,format='VTK_XML_SURFACE',vtk_encoding='ascii Float64',
+               vtk_files=[f'{stem}.{f}' for f in formats],filename_stem=stem,
+               vti_geometry='flat XY image, Elevation point scalar; Warp By Scalar gives actual terrain',
+               vts_geometry='explicit source X/Y and elevation-positive-up Z; one Z plane')
+    (folder/f'{stem}_metadata.json').write_text(json.dumps(saved,ensure_ascii=False,indent=2,allow_nan=False),encoding='utf-8')
+
+
+def _write_surface_grid_map(values,info,folder):
+    import matplotlib.pyplot as plt
+    fig,ax=plt.subplots(figsize=_dem_detail_figsize((0,info['width_m'],0,info['height_m'])),layout='constrained')
+    try:
+        h=info['spacing_m']
+        x=(np.arange(info['nx']+1)-.5)*h
+        y=(np.arange(info['ny']+1)-.5)*h
+        image=ax.pcolormesh(x,y,values,cmap='jet',shading='flat',rasterized=True)
+        ax.set(xlim=(0,info['width_m']),ylim=(0,info['height_m']),aspect='equal',
+               xlabel='Local X (m)',ylabel='Local Y (m)',title=f"{info['nx']} x {info['ny']} surface grid")
+        _dem_detail_colorbar(fig,image,ax)
+        save_publication_figure(fig,folder,surface_grid_stem(info)+'_map')
+    finally:
+        plt.close(fig)
+
+
+def export_surface_grid(dem,roi,output_dir=None,nx=300,ny=None,method='bilinear',*,spacing_m=None,endpoint=False,formats=('vti','vts')):
+    values,info=sample_surface_grid(dem,roi,nx,ny,method,spacing_m=spacing_m,endpoint=endpoint)
+    parent=Path(output_dir or dem.output_dir)
+    name=datetime.now().strftime('region_%Y%m%d_%H%M%S_%f')
+    pending=parent/(name+'.incomplete');final=parent/name
+    try:
+        write_surface_grid(values,info,pending,formats=formats)
+        _write_surface_grid_map(values,info,pending)
+        pending.rename(final)
+        return final
+    except Exception as exc:
+        if pending.exists():(pending/'EXPORT_ERROR.txt').write_text(str(exc),encoding='utf-8')
+        raise
+
+
 def _export_profile_files(dem, table, metadata, output_dir=None, roi=None, *, height_view='absolute', annotate=True,
                           zoom_range_m=None, map_figure=None, map_view_bounds=None, folder=None,
-                          viewport_figure=None, map_scope=None):
+                          viewport_figure=None, map_scope=None, surface_grid_shape=None):
     if len(table) < 2 or not np.isfinite(table[['x_m','elevation_m','dem_x','dem_y']]).all().all():
         raise ValueError('Export refused: selected profile includes NoData/out-of-bounds samples. Shorten the range or explicitly keep the longest valid segment.')
     if not (np.diff(table.x_m) > 0).all():
         raise ValueError('Export distances must increase strictly.')
     reference = profile_plot_reference(table, height_view)
+    region_data=None
+    if surface_grid_shape is not None:
+        region_data=sample_surface_grid(dem,roi,*surface_grid_shape,method=metadata.get('interpolation','bilinear'))
     if zoom_range_m is not None:
         profile_plot_window(table,zoom_range_m)  # Validate before creating any output.
     folder = Path(folder) if folder is not None else Path(output_dir or dem.output_dir)/datetime.now().strftime('profile_%Y%m%d_%H%M%S_%f')
     folder.mkdir(parents=True,exist_ok=False)
+    if region_data is not None:
+        write_surface_grid(*region_data,folder)
+        _write_surface_grid_map(*region_data,folder)
+        metadata=dict(metadata,surface_grid_3d=region_data[1])
     table[['x_m','elevation_m']].to_csv(folder/'surface_profile.csv',index=False,float_format='%.9f')
     table.to_csv(folder/'profile_with_coordinates.csv',index=False,float_format='%.9f')
     metadata = dict(metadata, exported_utc=datetime.now(timezone.utc).isoformat(),samples=len(table),
@@ -708,7 +863,9 @@ def _export_profile_files(dem, table, metadata, output_dir=None, roi=None, *, he
         'profile: full sampled elevation profile. profile_zoom: optional distance-window detail.\n'
         'Each figure is supplied as 600 dpi PNG, PDF and SVG. Raster map content remains raster in vector files.\n'
         'surface_profile.csv: simulation input with unchanged source elevations.\n'
-        'profile_with_coordinates.csv: full sampling coordinates. selection.json: provenance and view bounds.\n',encoding='utf-8')
+        'profile_with_coordinates.csv: full sampling coordinates. selection.json: provenance and view bounds.\n'
+        'surface_grid_*_h*m.vti / .vts, elevations CSV and metadata JSON: optional 2D surface array.\n'
+        'surface_grid_map: sampled region map; actual inscribed region is recorded separately from requested ROI.\n',encoding='utf-8')
     metadata['files']=sorted(p.name for p in folder.iterdir() if p.is_file())
     (folder/'selection.json').write_text(json.dumps(metadata,ensure_ascii=False,indent=2,allow_nan=False),encoding='utf-8')
     return folder

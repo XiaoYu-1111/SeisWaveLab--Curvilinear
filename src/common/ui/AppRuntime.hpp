@@ -8,15 +8,17 @@ std::filesystem::path outputRoot();
 std::filesystem::path elevationExampleRoot();
 float interfaceFontSize();
 void setInterfaceFontSize(float);
-void saveAppearancePreferences();
+void saveAppearancePreferences(const std::filesystem::path& destination = {});
+bool loadAppearancePreferences(const std::filesystem::path& source = {});
 void validateWindowState();
 class AppRuntime {
   public:
     AppRuntime() = default;
     ~AppRuntime();
-    bool open(const char *title, bool hidden, std::string &error);
+    bool open(const char *title, bool hidden, std::string &error, bool multiViewport = false);
     void begin();
     void present();
+    void renderPlatformWindows();
     GLFWwindow *window() const {
         return window_;
     }

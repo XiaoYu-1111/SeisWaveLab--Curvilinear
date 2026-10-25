@@ -10,18 +10,7 @@ int main(int argc, char **argv) {
     try {
         using namespace SeisWave::Ui;
         using namespace Seis3D::Curvilinear::Ui;
-        std::ifstream preferences(outputRoot() / "ui/preferences.cfg");
-        std::string key;
-        double value;
-        while (preferences >> key >> value) {
-            if (key == "font")
-                setInterfaceFontSize(static_cast<float>(value));
-            if (key == "language")
-                setLanguage3D(static_cast<int>(value));
-            if (key == "theme")
-                applyTheme3D(static_cast<int>(value));
-        }
-        preferences.close();
+        loadAppearancePreferences();
         const std::string mode = argc > 1 ? argv[1] : "";
         struct SaveAppearance {
             bool enabled;
@@ -46,6 +35,8 @@ int main(int argc, char **argv) {
             return Seis2D::Curvilinear::Ui::captureWorkflow2D();
         if (mode == "--smoke-2d")
             return Seis2D::Curvilinear::Ui::runWorkbench2D(true);
+        if (mode == "--smoke-2d-themes")
+            return Seis2D::Curvilinear::Ui::validateThemePanels2D();
         if (mode == "--smoke-2d-model")
             return Seis2D::Curvilinear::Ui::validateModelWorkflow2D();
         if (mode == "--smoke-router") {

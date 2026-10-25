@@ -20,8 +20,10 @@ inline double materialDepth3D(const SimulationParameters& p,const Grid3D& g,std:
     const auto& xyz=g.coordinates[q];
     if(p.layerDepthMode==LayerDepthMode3D::GridIndex)return (static_cast<int>(q/(static_cast<std::size_t>(g.nx)*g.ny))-g.ghost)*g.dz;
     if(p.layerDepthMode==LayerDepthMode3D::Datum)return xyz[2];
-    constexpr double pi=3.14159265358979323846;
-    return xyz[2]-p.topographyAmplitude*std::cos(2*pi*xyz[0]/p.topographyWavelength)*std::cos(2*pi*xyz[1]/p.topographyWavelength);
+    // Use the actual mapped surface, including imported DEM and ghost extension.
+    const auto plane=static_cast<std::size_t>(g.nx)*g.ny;
+    const auto surfaceIndex=static_cast<std::size_t>(g.ghost)*plane+q%plane;
+    return xyz[2]-g.coordinates[surfaceIndex][2];
 }
 inline int materialLayerAtDepth3D(const SimulationParameters& p,double depth) {
     double bottom=0;for(std::size_t i=0;i+1<p.layers.size();++i){bottom+=p.layers[i].thickness;if(depth<bottom)return static_cast<int>(i);}

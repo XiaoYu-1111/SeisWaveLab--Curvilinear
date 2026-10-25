@@ -46,7 +46,7 @@ int main() {
                     check(diff<=1e-6*std::max(peak,1e-25),"CUDA compact slice mismatch");
                 }
             }
-            const auto revision=gpu->revision();auto invalid=p;invalid.nx=1000;
+            const auto revision=gpu->revision();auto invalid=p;invalid.nx=maxPhysicalNodesPerAxis3D+1;
             check(!gpu->initialize(invalid,error)&&gpu->revision()==revision,"CUDA invalid initialization discarded session");
             check(gpu->advance(100,error)&&gpu->currentStep()==cpu.currentStep(),"CUDA overran completion");
             p.maxSteps=3;check(gpu->initialize(p,error)&&gpu->advance(100,error)&&gpu->currentStep()==3&&gpu->receivers().front().samples.size()==4,"CUDA reset/step cap failed");

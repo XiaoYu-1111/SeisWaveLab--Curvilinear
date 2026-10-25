@@ -98,7 +98,7 @@ class DEMProfileSelector:
                                                        ('当前地图视口','viewport'),('选取矩形','selection')],
                                               value='auto',description='局部 DEM 范围',style=style)
         self.refresh_button = widgets.Button(description='更新剖面',button_style='info')
-        self.export_button = widgets.Button(description='导出全部结果',button_style='success')
+        self.export_button = widgets.Button(description='导出剖面结果',button_style='success')
         self.dem_export_button = widgets.Button(description='放大到选区',
                                                 tooltip='将交互地图放大到橙色矩形，再导出当前地图视口截图')
         self.result_output, self.export_output, self.map_output = widgets.Output(),widgets.Output(),widgets.Output()

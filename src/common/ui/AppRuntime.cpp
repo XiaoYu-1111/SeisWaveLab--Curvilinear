@@ -1,5 +1,6 @@
 #include "AppRuntime.hpp"
 #include "Presentation3D.hpp"
+#include "GlassMaterial.hpp"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -10,6 +11,7 @@
 #include <cmath>
 #include <fstream>
 #include <map>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 #ifdef _WIN32
@@ -21,21 +23,31 @@
 namespace SeisWave::Ui {
 namespace {
 float interfaceFont = 20;
+int parameterModes[2]{};
 struct WindowState {
     int width{1600}, height{1000}, x{}, y{};
     bool saved{}, maximized{};
 } windowState;
+void (*platformRenderer)(ImGuiViewport*,void*){};
+void renderThemedViewport(ImGuiViewport* viewport,void* argument) {
+    const auto background=Seis3D::Curvilinear::Ui::palette3D().background;
+    glClearColor(background.x,background.y,background.z,1);glClear(GL_COLOR_BUFFER_BIT);
+    const auto flags=viewport->Flags;viewport->Flags|=ImGuiViewportFlags_NoRendererClear;
+    platformRenderer(viewport,argument);viewport->Flags=flags;
+}
 } // namespace
+int parameterDisplayMode(int dimension){return parameterModes[dimension==2?0:1];}
+void setParameterDisplayMode(int dimension,int mode){if(mode>=0&&mode<=2)parameterModes[dimension==2?0:1]=mode;}
 float interfaceFontSize() {
     return interfaceFont;
 }
-void saveAppearancePreferences() {
-    const auto folder = outputRoot() / "ui";
+void saveAppearancePreferences(const std::filesystem::path& destination) {
+    const auto file = destination.empty()?outputRoot()/"ui/preferences.cfg":destination;
+    const auto folder = file.parent_path();
     std::error_code ec;
-    std::filesystem::create_directories(folder, ec);
+    if(!folder.empty())std::filesystem::create_directories(folder, ec);
     if (ec)
         return;
-    const auto file = folder / "preferences.cfg";
     std::map<std::string, std::string> values;
     std::ifstream in(file);
     std::string key, value;
@@ -45,9 +57,42 @@ void saveAppearancePreferences() {
     values["font"] = std::to_string(interfaceFontSize());
     values["language"] = std::to_string(Seis3D::Curvilinear::Ui::language3D());
     values["theme"] = std::to_string(Seis3D::Curvilinear::Ui::themeIndex3D());
+    values["theme_key"] = Seis3D::Curvilinear::Ui::themeKey3D(Seis3D::Curvilinear::Ui::themeIndex3D());
+    values["theme_schema"] = "2";
+    values["parameters_2d"] = std::to_string(parameterModes[0]);
+    values["parameters_3d"] = std::to_string(parameterModes[1]);
+    values["glass_finish"] = std::to_string(Seis3D::Curvilinear::Ui::glassFinish3D());
+    values["glass_strength"] = std::to_string(Seis3D::Curvilinear::Ui::glassStrength3D());
+    values["glass_motion"] = std::to_string(Seis3D::Curvilinear::Ui::glassMotion3D()?1:0);
     std::ofstream out(file);
     for (const auto &[name, setting] : values)
         out << name << ' ' << setting << '\n';
+}
+bool loadAppearancePreferences(const std::filesystem::path& source) {
+    std::ifstream in(source.empty()?outputRoot()/"ui/preferences.cfg":source);if(!in)return false;
+    std::string line;std::map<std::string,std::string> settings;
+    while(std::getline(in,line)) {
+        std::istringstream row(line);std::string key,value;if(row>>key>>value)settings[key]=value;
+    }
+    using namespace Seis3D::Curvilinear::Ui;
+    const auto number=[&](const char* key,double& value){auto it=settings.find(key);if(it==settings.end())return false;std::istringstream row(it->second);return bool(row>>value)&&std::isfinite(value)&&row.peek()==std::char_traits<char>::eof();};
+    int resolved=-1;if(const auto it=settings.find("theme_key");it!=settings.end())resolved=findTheme3D(it->second);
+    double schema{},index{};
+    if(resolved<0&&number("theme",index)&&index==std::floor(index)&&index>=0&&index<15) {
+        if(number("theme_schema",schema)&&schema==2) {if(index<themeCount3D)resolved=static_cast<int>(index);}
+        else resolved=legacyThemeIndex3D(static_cast<int>(index));
+    }
+    if(resolved>=0)applyTheme3D(resolved);
+    for(const auto& [key,text]:settings) {
+        double value{};if(!number(key.c_str(),value))continue;(void)text;
+        if((key=="parameters_2d"||key=="parameters_3d")&&value==std::floor(value)&&value>=0&&value<=2)setParameterDisplayMode(key=="parameters_2d"?2:3,static_cast<int>(value));
+        if(key=="language"&&(value==0||value==1))setLanguage3D(static_cast<int>(value));
+        if(key=="font")setInterfaceFontSize(static_cast<float>(value));
+        if(key=="glass_finish"&&(value==0||value==1))setGlassFinish3D(static_cast<int>(value));
+        if(key=="glass_strength"&&value>=0&&value<=1)setGlassStrength3D(static_cast<float>(value));
+        if(key=="glass_motion"&&(value==0||value==1))setGlassMotion3D(value!=0);
+    }
+    return true;
 }
 void setInterfaceFontSize(float size) {
     if (std::isfinite(size))
@@ -70,7 +115,7 @@ std::filesystem::path elevationExampleRoot() {
 #endif
     return std::filesystem::current_path() / "examples/elevation";
 }
-bool AppRuntime::open(const char *title, bool hidden, std::string &error) {
+bool AppRuntime::open(const char *title, bool hidden, std::string &error, bool multiViewport) {
     if (!glfwInit()) {
         error = "GLFW initialization failed.";
         return false;
@@ -129,6 +174,11 @@ bool AppRuntime::open(const char *title, bool hidden, std::string &error) {
     implot_ = true;
     auto &io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    if (multiViewport) {
+        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+        io.ConfigViewportsNoTaskBarIcon = false;
+        io.ConfigViewportsNoDefaultParent = true;
+    }
     io.IniFilename = nullptr;
     bool loaded = false;
 #ifdef _WIN32
@@ -158,10 +208,16 @@ bool AppRuntime::open(const char *title, bool hidden, std::string &error) {
         if (maximize)
             glfwMaximizeWindow(window_);
     }
+    platformRenderer=ImGui::GetPlatformIO().Renderer_RenderWindow;
+    ImGui::GetPlatformIO().Renderer_RenderWindow=renderThemedViewport;
+    installGlassPresentation();
     error.clear();
     return true;
 }
 AppRuntime::~AppRuntime() {
+    // Platform rendering uses other shared contexts; GL owners are released on the main one.
+    if (window_)
+        glfwMakeContextCurrent(window_);
     if (window_) {
         windowState.maximized = glfwGetWindowAttrib(window_, GLFW_MAXIMIZED) == GLFW_TRUE;
 #ifdef _WIN32
@@ -257,7 +313,18 @@ void AppRuntime::present() {
     glClearColor(p.x, p.y, p.z, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    renderPlatformWindows();
     glfwSwapBuffers(window_);
+}
+void AppRuntime::renderPlatformWindows() {
+    if (!(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable))
+        return;
+    GLFWwindow *previous = glfwGetCurrentContext();
+    // Submit the scene texture before another context samples it in a detached viewport.
+    glFlush();
+    ImGui::UpdatePlatformWindows();
+    ImGui::RenderPlatformWindowsDefault();
+    glfwMakeContextCurrent(previous);
 }
 bool capture(const std::filesystem::path &path, int width, int height) {
     std::filesystem::create_directories(path.parent_path());

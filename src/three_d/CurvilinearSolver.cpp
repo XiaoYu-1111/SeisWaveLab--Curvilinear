@@ -19,6 +19,8 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <optional>
+#include <type_traits>
 #ifdef SEIS3D_HAS_OPENMP
 #include <omp.h>
 #endif
@@ -112,7 +114,7 @@ GridLayout3D Grid3D::layout() const noexcept {
     return {nx,ny,nz,ghost,static_cast<std::uint64_t>(nx),static_cast<std::uint64_t>(nx)*ny,static_cast<std::uint64_t>(nx)*ny*nz};
 }
 
-bool Grid3D::buildGeometry(std::string& error) {
+bool Grid3D::validateGeometry(std::string& error) {
     if (ghost!=ghostWidth3D || nx < 8+2*ghost || ny < 8+2*ghost || nz < 8+2*ghost || nx>maxPhysicalNodesPerAxis3D+2*ghost || ny>maxPhysicalNodesPerAxis3D+2*ghost || nz>maxPhysicalNodesPerAxis3D+2*ghost ||
         !std::isfinite(dx) || !std::isfinite(dy) || !std::isfinite(dz) || dx <= 0.0 || dy <= 0.0 || dz <= 0.0 ||
         !std::isfinite(topographyAmplitude) || !std::isfinite(topographyWavelength) || topographyWavelength<=0.0 ||
@@ -120,26 +122,44 @@ bool Grid3D::buildGeometry(std::string& error) {
         error = "Grid dimensions, ghost width, spacing or topography parameters are invalid."; return false;
     }
     const std::size_t count = static_cast<std::size_t>(nx) * ny * nz;
-    if(count>maxPaddedNodes3D) { error="Grid exceeds the padded-node budget for a 300 x 300 x 300 model."; return false; }
+    if(count>maxPaddedNodes3D) { error="Grid exceeds the 28,652,616 padded-node total budget; redistribute X/Y/Z nodes."; return false; }
     const double bottomDepth=(nz-2*ghost-1)*dz;
-    if(terrainTransitionDepth==0.0)terrainTransitionDepth=std::min(bottomDepth,std::max({0.35*bottomDepth,6.0*dz,4.0*std::abs(topographyAmplitude)+2.0*dz}));
-    if(terrainTransitionDepth>bottomDepth || (topographyAmplitude!=0.0 && (terrainTransitionDepth<4.0*dz || terrainTransitionDepth<=2.6*std::abs(topographyAmplitude)))) {
+    if(!surfaceGrid.empty()) {
+        if(!surfaceGrid.validate(error))return false;
+        if((nx-2*ghost-1)*dx>surfaceGrid.width()+1e-8*surfaceGrid.spacing ||
+           (ny-2*ghost-1)*dy>surfaceGrid.height()+1e-8*surfaceGrid.spacing) {
+            error="Imported DEM does not cover the staged X/Y model span; reduce dimensions/spacing or export a larger region.";return false;
+        }
+    }
+    double relief=std::abs(topographyAmplitude);
+    if(!surfaceGrid.empty()) {
+        relief=0;
+        for(int j=0;j<ny;++j)for(int i=0;i<nx;++i)
+            relief=std::max(relief,std::abs(surfaceGrid.displacement((i-ghost)*dx,(j-ghost)*dy)));
+    }
+    if(terrainTransitionDepth==0.0)terrainTransitionDepth=std::min(bottomDepth,std::max({0.35*bottomDepth,6.0*dz,4.0*relief+2.0*dz}));
+    if(terrainTransitionDepth>bottomDepth || (hasTerrain() && (terrainTransitionDepth<4.0*dz || terrainTransitionDepth<=2.6*relief))) {
         error="Terrain transition must fit the model depth and exceed 2.6 times relief amplitude (at least four cells)."; return false;
     }
+    return true;
+}
+bool Grid3D::buildGeometry(std::string& error) {
+    if(!validateGeometry(error))return false;
+    const std::size_t count=static_cast<std::size_t>(nx)*ny*nz;
     coordinates.resize(count); inverseMetrics.assign(count, {}); jacobian.assign(count, 0.0); surfaceNormal.assign(count, {});
     for (int k = 0; k < nz; ++k) for (int j = 0; j < ny; ++j) for (int i = 0; i < nx; ++i) {
         const double x = (i - ghost) * dx, y = (j - ghost) * dy, depth = (k - ghost) * dz;
-        if(topographyAmplitude==0){coordinates[index(i,j,k)]={x,y,depth};continue;}
+        if(!hasTerrain()){coordinates[index(i,j,k)]={x,y,depth};continue;}
         const double phaseX = 2.0 * kPi * x / topographyWavelength;
         const double phaseY = 2.0 * kPi * y / topographyWavelength;
-        const double surface = topographyAmplitude * std::cos(phaseX) * std::cos(phaseY);
+        const double surface = surfaceGrid.empty()?topographyAmplitude*std::cos(phaseX)*std::cos(phaseY):surfaceGrid.displacement(x,y);
         // Ninth-degree smoothstep has four vanishing derivatives at both ends; deep layers and the bottom are exactly horizontal.
         const double s=std::clamp(depth/terrainTransitionDepth,0.0,1.0);
         const double fade=depth>=terrainTransitionDepth?0.0:1.0-std::pow(s,5)*(126.0+s*(-420.0+s*(540.0+s*(-315.0+70.0*s))));
         coordinates[index(i, j, k)] = {x, y, depth+surface*fade};
     }
     for (int k = ghost; k < nz - ghost; ++k) for (int j = ghost; j < ny - ghost; ++j) for (int i = ghost; i < nx - ghost; ++i) {
-        if(topographyAmplitude==0){const auto q=index(i,j,k);inverseMetrics[q]={1,0,0,0,1,0,0,0,1};jacobian[q]=1;if(k==ghost)surfaceNormal[q]={0,0,1};continue;}
+        if(!hasTerrain()){const auto q=index(i,j,k);inverseMetrics[q]={1,0,0,0,1,0,0,0,1};jacobian[q]=1;if(k==ghost)surfaceNormal[q]={0,0,1};continue;}
         Vector3 rXi{}, rEta{}, rZeta{};
         for (int c = 0; c < 3; ++c) {
             rXi[c] = derivativeCoordinate(*this, c, i, j, k, 0);
@@ -235,10 +255,10 @@ CpuSimulation3D::CpuSimulation3D(BackendKind3D kind):requestedBackend_(kind){}
 CpuSimulation3D::~CpuSimulation3D()=default;
 
 // Validates finite inputs, positive elastic bulk modulus, a CPU memory limit and a metric-aware CFL estimate.
-bool CpuSimulation3D::initialize(const SimulationParameters& p,std::string& error,const ComputeSettings3D& settings) {
-    const auto initializationStart=std::chrono::steady_clock::now();
+bool validateSimulationConfiguration3D(const SimulationParameters& p,BackendKind3D kind,std::string& error,const ComputeSettings3D& settings) {
     error.clear();
-    const auto availability=queryBackend3D(requestedBackend_,settings.cudaDevice);
+    try {
+    const auto availability=queryBackend3D(kind,settings.cudaDevice);
     if(!availability.available){error=availability.description;return false;}
     if(!std::isfinite(p.cflSafety)||p.cflSafety<minCflCoefficient3D||p.cflSafety>maxCflCoefficient3D){error="CFL coefficient must be finite and in 0.02..0.8.";return false;}
     if(p.maxSteps<0 || p.maxSteps>maxTimeSteps3D) {error="Maximum steps must be 0 (duration) or 1..20,000.";return false;}
@@ -250,12 +270,12 @@ bool CpuSimulation3D::initialize(const SimulationParameters& p,std::string& erro
        p.spacing<=0.0 || p.vp<=0.0 || p.vs<=0.0 || p.density<=0.0 ||
        p.vp*p.vp<=4.0*p.vs*p.vs/3.0 || p.dominantFrequency<=0.0 || p.dominantFrequency>1.0e6 || p.duration<=0.0 || p.duration>10.0 ||
        p.topographyWavelength<=0.0 || p.terrainTransitionDepth<0.0 || settings.cpuThreads<0 || settings.cpuThreads>maxCpuThreads3D ||
-       (p.topographyAmplitude!=0.0 && p.topographyWavelength<4.0*p.spacing)) {
-        error="Require 8..300 nodes per axis, positive finite parameters, positive bulk modulus, and resolved topography.";
+       (p.surfaceGrid.empty() && p.topographyAmplitude!=0.0 && p.topographyWavelength<4.0*p.spacing)) {
+        error="Require 8..4096 nodes per axis within the total node/memory budget, positive finite parameters and resolved topography.";
         return false;
     }
     const std::size_t points=static_cast<std::size_t>(p.nx+2*ghostWidth3D)*(p.ny+2*ghostWidth3D)*(p.nz+2*ghostWidth3D);
-    if(points>maxPaddedNodes3D) { error="Node budget exceeds a 300 x 300 x 300 model with three ghost layers per face."; return false; }
+    if(points>maxPaddedNodes3D) { error="Grid exceeds the 28,652,616 padded-node total budget; redistribute X/Y/Z nodes."; return false; }
     if(!SeisWave::validateSource(p.source,false,error))return false;
     if(!std::isfinite(p.sourceForce)||!std::isfinite(p.sourceMoment)||(p.source.kind==SeisWave::SourceKind::IsotropicMoment?p.sourceMoment:p.sourceForce)<=0){error="Source amplitudes must be finite and the active force (N) or moment (N*m) must be positive.";return false;}
     const auto source=sourceIndices3D(p);
@@ -268,6 +288,24 @@ bool CpuSimulation3D::initialize(const SimulationParameters& p,std::string& erro
     }
     if(!validateMaterial3D(p,error))return false;
     std::vector<std::array<int,3>> receiverNodes;if(!receiverNodes3D(p,receiverNodes,error))return false;
+    Grid3D grid;grid.nx=p.nx+2*ghostWidth3D;grid.ny=p.ny+2*ghostWidth3D;grid.nz=p.nz+2*ghostWidth3D;
+    grid.dx=grid.dy=grid.dz=p.spacing;grid.topographyAmplitude=p.topographyAmplitude;
+    grid.topographyWavelength=p.topographyWavelength;grid.terrainTransitionDepth=p.terrainTransitionDepth;grid.surfaceGrid=p.surfaceGrid;
+    if(!grid.validateGeometry(error))return false;
+    const double lambda=p.density*(p.vp*p.vp-2*p.vs*p.vs),mu=p.density*p.vs*p.vs;
+    if(!std::isfinite(lambda)||!std::isfinite(mu)||mu<=0){error="Derived elastic coefficients are out of range.";return false;}
+    return true;
+    } catch(const std::exception& ex){error=std::string("Configuration validation failed: ")+ex.what();return false;}
+}
+
+bool CpuSimulation3D::initialize(const SimulationParameters& p,std::string& error,const ComputeSettings3D& settings) {
+    const auto initializationStart=std::chrono::steady_clock::now();
+    error.clear();
+    if(!validateSimulationConfiguration3D(p,requestedBackend_,error,settings))return false;
+    const auto availability=queryBackend3D(requestedBackend_,settings.cudaDevice);
+    const auto source=sourceIndices3D(p);
+    std::vector<std::array<int,3>> receiverNodes;if(!receiverNodes3D(p,receiverNodes,error))return false;
+    const std::size_t points=static_cast<std::size_t>(p.nx+2*ghostWidth3D)*(p.ny+2*ghostWidth3D)*(p.nz+2*ghostWidth3D);
     if(!fitsMemory3D(estimateModelMemory3D(p),requestedBackend_,queryBackendMemory3D(requestedBackend_,availability.cudaDevice))){error="Insufficient available memory for the requested grid. Current session retained; reduce dimensions or use Fit to available memory.";return false;}
     try {
         auto next=std::make_unique<Impl>();
@@ -285,6 +323,7 @@ bool CpuSimulation3D::initialize(const SimulationParameters& p,std::string& erro
         grid.topographyAmplitude=p.topographyAmplitude;
         grid.topographyWavelength=p.topographyWavelength;
         grid.terrainTransitionDepth=p.terrainTransitionDepth;
+        grid.surfaceGrid=p.surfaceGrid;
         if(!grid.buildGeometry(error)) return false;
         next->diagnostics.minJacobian=std::numeric_limits<double>::max();
         double maxMetricNorm=0.0;
@@ -297,8 +336,8 @@ bool CpuSimulation3D::initialize(const SimulationParameters& p,std::string& erro
         }
         next->diagnostics.maxMetricNorm=maxMetricNorm;
         // CGFD3D blk_dt_esti_curv: smallest distance from a node to each of eight adjacent planes.
-        double minLength=p.topographyAmplitude==0?p.spacing/std::sqrt(3.0):std::numeric_limits<double>::max();
-        if(p.topographyAmplitude!=0)for(int k=grid.ghost;k<grid.nz-grid.ghost;++k)for(int j=grid.ghost;j<grid.ny-grid.ghost;++j)for(int i=grid.ghost;i<grid.nx-grid.ghost;++i) {
+        double minLength=!grid.hasTerrain()?p.spacing/std::sqrt(3.0):std::numeric_limits<double>::max();
+        if(grid.hasTerrain())for(int k=grid.ghost;k<grid.nz-grid.ghost;++k)for(int j=grid.ghost;j<grid.ny-grid.ghost;++j)for(int i=grid.ghost;i<grid.nx-grid.ghost;++i) {
             const auto& center=grid.coordinates[grid.index(i,j,k)];
             for(int sk:{-1,1})for(int sj:{-1,1})for(int si:{-1,1}) {
                 const auto& a=grid.coordinates[grid.index(i+si,j,k)];const auto& b=grid.coordinates[grid.index(i,j+sj,k)];const auto& c=grid.coordinates[grid.index(i,j,k+sk)];
@@ -310,8 +349,8 @@ bool CpuSimulation3D::initialize(const SimulationParameters& p,std::string& erro
             }
         }
         next->diagnostics.minCellLength=minLength;
-        double maxEdge=p.topographyAmplitude==0?p.spacing:0;
-        if(p.topographyAmplitude!=0)for(int k=grid.ghost;k<grid.nz-grid.ghost;++k)for(int j=grid.ghost;j<grid.ny-grid.ghost;++j)for(int i=grid.ghost;i<grid.nx-grid.ghost;++i) {
+        double maxEdge=!grid.hasTerrain()?p.spacing:0;
+        if(grid.hasTerrain())for(int k=grid.ghost;k<grid.nz-grid.ghost;++k)for(int j=grid.ghost;j<grid.ny-grid.ghost;++j)for(int i=grid.ghost;i<grid.nx-grid.ghost;++i) {
             const auto& a=grid.coordinates[grid.index(i,j,k)];
             for(int axis=0;axis<3;++axis) {
                 const int ni=i+(axis==0),nj=j+(axis==1),nk=k+(axis==2);
@@ -534,6 +573,69 @@ bool CpuSimulation3D::readDisplayFrame(const DisplayRequest3D& request,DisplayFr
         }
         frame.request=request;frame.revision=revision();return true;
     } catch(const std::exception& ex){error=std::string("Slice acquisition failed: ")+ex.what();return false;}
+}
+
+BackendMemory3D CpuSimulation3D::residentMemory() const noexcept {
+    BackendMemory3D m;if(!impl_)return m;const auto& s=*impl_;
+    m.hostAvailableBytes=sizeof(Impl);
+    const auto add=[&](const auto& v){m.hostAvailableBytes+=v.capacity()*sizeof(typename std::decay_t<decltype(v)>::value_type);};
+    add(s.parameters.surfaceGrid.elevations);add(s.grid.surfaceGrid.elevations);
+    add(s.grid.coordinates);add(s.grid.inverseMetrics);add(s.grid.jacobian);add(s.grid.surfaceNormal);
+    for(const auto* state:{&s.state,&s.k1,&s.k2,&s.k3,&s.k4,&s.stage,&s.base})for(const auto& v:state->field)add(v);
+    add(s.sourceWeights);add(s.dampingRates);for(const auto& v:s.sourceGradient)add(v);
+    add(s.materialLambda);add(s.materialMu);add(s.materialDensity);add(s.receiverTraces);
+    for(const auto& r:s.receiverTraces){add(r.samples);add(r.samplesVx);add(r.samplesVy);}
+#ifdef SEIS3D_HAS_CUDA
+    if(s.cuda){const auto cuda=s.cuda->residentMemory();m.hostAvailableBytes+=cuda.hostAvailableBytes;m.deviceAvailableBytes=cuda.deviceAvailableBytes;}
+#endif
+    return m;
+}
+
+BackendMemory3D memoryForRebuild3D(const ISimulationBackend3D* active,BackendKind3D kind,int device) {
+    auto available=queryBackendMemory3D(kind,device);
+    if(!active||!active->initialized())return available;
+    const auto owned=active->residentMemory();const auto old=active->backendInfo();
+    const auto add=[](std::uint64_t free,std::uint64_t released){return free?free+std::min(released,std::numeric_limits<std::uint64_t>::max()-free):0;};
+    available.hostAvailableBytes=add(available.hostAvailableBytes,owned.hostAvailableBytes);
+    if(kind==BackendKind3D::Cuda&&old.kind==kind&&queryBackend3D(kind,device).cudaDevice==old.cudaDevice)
+        available.deviceAvailableBytes=add(available.deviceAvailableBytes,owned.deviceAvailableBytes);
+    return available;
+}
+
+RebuildOutcome3D rebuildSimulation3D(std::unique_ptr<ISimulationBackend3D>& active,const SimulationParameters& parameters,BackendKind3D kind,const ComputeSettings3D& settings,std::string& error) {
+    RebuildOutcome3D result;
+    try {
+    // Own the inputs even if a caller passed active->parameters().
+    const auto requested=parameters;
+    if(!validateSimulationConfiguration3D(requested,kind,error,settings))return result;
+    if(!fitsMemory3D(estimateModelMemory3D(requested),kind,memoryForRebuild3D(active.get(),kind,settings.cudaDevice))) {
+        error="Requested model exceeds memory available after releasing the active grid. Current session retained.";return result;
+    }
+    auto candidate=createSimulationBackend3D(kind,error);if(!candidate)return result;
+    const bool hadActive=active&&active->initialized();
+    const std::optional<SimulationParameters> previous=hadActive?std::optional<SimulationParameters>(active->parameters()):std::nullopt;
+    const auto previousBackend=hadActive?active->backendInfo():BackendInfo3D{};
+    if(hadActive){result.reclaimed=active->residentMemory();result.released=true;}
+    active.reset(); // Frees CPU vectors and CUDA buffers before any new volume allocation.
+    active=std::move(candidate);
+    if(active->initialize(requested,error,settings)){result.success=true;return result;}
+    const std::string failure=error;
+    if(previous) {
+        auto restored=createSimulationBackend3D(previousBackend.kind,error);
+        const ComputeSettings3D oldSettings{previousBackend.kind==BackendKind3D::Cpu?previousBackend.workerThreads:0,previousBackend.cudaDevice};
+        if(restored&&restored->initialize(*previous,error,oldSettings)) {
+            active=std::move(restored);result.restored=true;
+            error=failure+" Previous model/settings restored at t=0; old wavefields and records were released.";return result;
+        }
+    }
+    // If external pressure prevents restoring the old volume, keep a small,
+    // usable CPU session so the UI can display the error and accept edits.
+    auto fallback=createSimulationBackend3D(BackendKind3D::Cpu,error);SimulationParameters small;
+    small.nx=small.ny=small.nz=8;small.topographyAmplitude=0;small.maxSteps=1;
+    if(fallback&&fallback->initialize(small,error,{1})) {active=std::move(fallback);result.fallback=true;}
+    error=failure+" Previous model could not be restored. "+(result.fallback?"A small CPU session is active; review parameters and rebuild.":"No model could be allocated; return to Home and free system memory.");
+    return result;
+    } catch(const std::exception& ex){error=std::string("Rebuild failed: ")+ex.what();return result;}
 }
 
 std::unique_ptr<ISimulationBackend3D> createSimulationBackend3D(BackendKind3D kind,std::string& error) {

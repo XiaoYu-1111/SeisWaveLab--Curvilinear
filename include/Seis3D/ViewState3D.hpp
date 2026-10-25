@@ -12,7 +12,7 @@ struct SliceView3D { float zoom{1}; std::array<float,2> pan{}; };
 inline bool geometryChanged3D(const SimulationParameters& a,const SimulationParameters& b) {
     return a.nx!=b.nx || a.ny!=b.ny || a.nz!=b.nz || a.spacing!=b.spacing ||
         a.topographyAmplitude!=b.topographyAmplitude || a.topographyWavelength!=b.topographyWavelength ||
-        a.terrainTransitionDepth!=b.terrainTransitionDepth;
+        a.terrainTransitionDepth!=b.terrainTransitionDepth || a.surfaceGrid!=b.surfaceGrid;
 }
 
 // Maps positions by normalized index, preventing old absolute indices from drifting to an edge after resizing.

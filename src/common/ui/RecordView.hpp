@@ -21,6 +21,11 @@ class RecordView {
         revision_ = 0;
         fit_ = true;
     }
+    void releaseCache() {
+        std::vector<Series>().swap(series_);
+        std::vector<double>().swap(density_);
+        invalidate();
+    }
 
   private:
     struct Series {

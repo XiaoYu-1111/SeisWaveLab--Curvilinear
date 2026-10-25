@@ -14,6 +14,7 @@
 | 背景、原理、实现过程、界面介绍与附录 | [完整学术说明](PROJECT_MANUAL.md) |
 | 方程、边界闭合、差分、时间组合与诊断 | [数值原理](NUMERICAL_METHOD.md) |
 | 模型、震源、接收器、显示与快捷键 | [用户指南](USER_GUIDE.md) |
+| 12 种主题、磨砂材质、左侧 / 悬浮 / 并存参数面板 | [主题与悬浮参数面板](APPEARANCE_AND_PANELS.md) |
 | 黄土塬干扰波、采集参数初筛与当前能力边界 | [采集生产应用分析](ACQUISITION_PRODUCTION_VALUE.md) |
 | 接收几何及 CPU/CUDA 计时 | [采集与性能](ACQUISITION_AND_PERFORMANCE.md) |
 | 二维/三维三档 CPU/CUDA 实测、倍速曲线与原始数据 | [性能对比报告（2026-10-19）](PERFORMANCE_BENCHMARK.md) |

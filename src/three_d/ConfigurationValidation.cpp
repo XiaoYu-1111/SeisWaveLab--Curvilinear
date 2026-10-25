@@ -61,7 +61,7 @@ int main(int argc,char** argv){try {
         for(const auto& r:session.receivers())check(r.samples==std::vector<double>{0}&&r.samplesVx==r.samples&&r.samplesVy==r.samples,"Clear retained receiver samples");
         CpuSimulation3D fresh(kind);check(fresh.initialize(p,error,{1})&&session.advance(2,error)&&fresh.advance(2,error),error);
         DisplayFrame3D a,b;check(session.readDisplayFrame({8,6,3,0},a,error)&&fresh.readDisplayFrame({8,6,3,0},b,error),error);for(int plane=0;plane<3;++plane)check(a.planes[plane].values==b.planes[plane].values,"Restart after clear differs from a fresh session");
-        const auto saved=session.revision();auto bad=p;bad.nx=301;check(!session.initialize(bad,error)&&session.revision()==saved&&session.dt()==dt,"Rejected edit changed live dt/session");
+        const auto saved=session.revision();auto bad=p;bad.nx=maxPhysicalNodesPerAxis3D+1;check(!session.initialize(bad,error)&&session.revision()==saved&&session.dt()==dt,"Rejected edit changed live dt/session");
         if(kind==BackendKind3D::Cuda&&!fitsMemory3D(largeMemory,kind,queryBackendMemory3D(kind)))check(!session.initialize(largest,error)&&session.revision()==saved,"Oversized CUDA request allocated or discarded the current session");
     }
     std::cout<<"PASS formatting, 100/200/300 presets, memory preflight/fit, eight dt changes, terrain rebuild and CPU/CUDA in-place clear\n";

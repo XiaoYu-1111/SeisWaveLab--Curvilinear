@@ -8,7 +8,7 @@ struct ReceiverLimits3D {int x{},y{},total{},xAtCurrentY{},yAtCurrentX{};};
 inline ReceiverLimits3D receiverLimits3D(const SimulationParameters& p) {
     ReceiverLimits3D out;const auto& a=p.receiverArray;
     if(p.nx<8||p.ny<8||p.nz<8||p.nx>maxPhysicalNodesPerAxis3D||p.ny>maxPhysicalNodesPerAxis3D||p.nz>maxPhysicalNodesPerAxis3D||a.kind<ReceiverArrayKind3D::AutoXLine||a.kind>ReceiverArrayKind3D::GridXY||a.z<0||a.z>=p.nz)return out;
-    if(a.kind==ReceiverArrayKind3D::AutoXLine)return {p.nx-4,1,p.nx-4,p.nx-4,1};
+    if(a.kind==ReceiverArrayKind3D::AutoXLine)return {p.nx-4,1,std::min(maxReceiverTraces3D,p.nx-4),std::min(maxReceiverTraces3D,p.nx-4),1};
     const int x=a.startX==-1?p.nx/2:a.startX,y=a.startY==-1?p.ny/2:a.startY;
     if(x<0||x>=p.nx||y<0||y>=p.ny)return out;
     const auto capacity=[](int n,int start,int stride){return stride>0?1+(n-1-start)/stride:0;};
@@ -30,7 +30,10 @@ inline bool fitReceiverCounts3D(SimulationParameters& p) {
 inline bool receiverNodes3D(const SimulationParameters& p,std::vector<std::array<int,3>>& nodes,std::string& error) {
     nodes.clear();error.clear();const auto& a=p.receiverArray;const auto limits=receiverLimits3D(p);
     if(!limits.total){error="Invalid receiver grid, mode, start, active stride or depth index.";return false;}
-    if(a.kind==ReceiverArrayKind3D::AutoXLine){for(int i=2;i<p.nx-2;++i)nodes.push_back({i,p.ny/2,a.z});return true;}
+    if(a.kind==ReceiverArrayKind3D::AutoXLine){
+        if(p.nx-4>maxReceiverTraces3D){error="Auto X line exceeds 1024 traces; select a custom line with a larger receiver stride.";return false;}
+        for(int i=2;i<p.nx-2;++i)nodes.push_back({i,p.ny/2,a.z});return true;
+    }
     const int cx=a.kind==ReceiverArrayKind3D::YLine?1:a.countX,cy=a.kind==ReceiverArrayKind3D::XLine?1:a.countY;
     const int x=a.startX==-1?p.nx/2:a.startX,y=a.startY==-1?p.ny/2:a.startY;
     if(cx<1||cy<1||cx>limits.x||cy>limits.y||static_cast<std::int64_t>(cx)*cy>maxReceiverTraces3D){error="Receiver counts exceed the start/stride capacity or the 1024-trace total limit. Review capacity or fit counts.";return false;}

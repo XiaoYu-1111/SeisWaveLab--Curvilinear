@@ -24,6 +24,7 @@ struct DeviceScope {
 };
 struct DeviceBuffer {
     void *pointer{};
+    std::size_t allocatedBytes{};
     int device{-1};
     DeviceBuffer() = default;
     DeviceBuffer(const DeviceBuffer &) = delete;
@@ -40,6 +41,7 @@ struct DeviceBuffer {
     void allocate(std::size_t bytes) {
         checked(cudaGetDevice(&device), "buffer device");
         checked(cudaMalloc(&pointer, bytes), "allocation");
+        allocatedBytes=bytes;
         checked(cudaMemset(pointer, 0, bytes), "zero buffer");
     }
     double *doubles() const {

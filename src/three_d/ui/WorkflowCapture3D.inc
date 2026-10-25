@@ -14,7 +14,7 @@ bool captureWorkflow3D(Workbench3D& app,GLFWwindow* window) {
             glfwPollEvents();ImGui_ImplOpenGL3_NewFrame();ImGui_ImplGlfw_NewFrame();ImGui::NewFrame();ImGui::PushFont(nullptr,20);
             if(frame==1)ImGui::SetWindowFocus(label3D("Controls"));
             if(frame==2){if(const auto* pane=ImGui::FindWindowByName(label3D("Controls"))){const auto at=pane->InnerRect.GetCenter();ImGui::GetIO().AddMousePosEvent(at.x,at.y);ImGui::GetIO().AddMouseWheelEvent(0,100);}}
-            app.gridSegments.fill(0);app.toolbar();app.docking();app.controls();app.diagnosticsWindow();app.updateRange();app.spatialWindow();app.sliceWindow(0,"Inline X-Z");app.sliceWindow(1,"Crossline Y-Z");app.sliceWindow(2,"Depth X-Y");app.records();app.shortcutWindow();
+            app.gridSegments.fill(0);app.toolbar();app.docking();app.controls();app.diagnosticsWindow();app.updateRange();app.spatialWindow();app.sliceWindow(0,"Inline X-Z");app.sliceWindow(1,"Crossline Y-Z");app.sliceWindow(2,"Depth X-Y");app.records();app.floatingControls();app.shortcutWindow();
             ImGui::PopFont();ImGui::Render();int width=0,height=0;glfwGetFramebufferSize(window,&width,&height);glViewport(0,0,width,height);glClearColor(palette3D().background.x,palette3D().background.y,palette3D().background.z,1);glClear(GL_COLOR_BUFFER_BIT);ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             if(frame==6&& (width!=2560||height!=1494||!captureFrame3D(output/(std::string(name)+".ppm"),width,height))){app.error="Native workflow framebuffer capture failed.";return false;}
             glfwSwapBuffers(window);

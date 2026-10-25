@@ -22,6 +22,10 @@ inline std::string configurationText3D(const SimulationParameters& p) {
     for(const auto& l:p.layers)s<<std::quoted(l.name)<<' '<<l.thickness<<' '<<l.vp<<' '<<l.vs<<' '<<l.density<<' ';
     const auto& r=p.receiverArray;s<<p.dominantFrequency<<' '<<p.sourceX<<' '<<p.sourceY<<' '<<p.sourceZ<<' '<<p.duration<<' '<<p.maxSteps<<' '<<p.cflSafety<<' '<<p.topographyAmplitude<<' '<<p.topographyWavelength<<' '<<p.terrainTransitionDepth<<' '<<static_cast<int>(r.kind)<<' '<<r.startX<<' '<<r.startY<<' '<<r.z<<' '<<r.countX<<' '<<r.countY<<' '<<r.strideX<<' '<<r.strideY;
     const auto& b=p.absorbingBoundary;s<<" sponge "<<b.enabled<<' '<<b.cells[0]<<' '<<b.cells[1]<<' '<<b.cells[2]<<' '<<b.strength;
+    if(!p.surfaceGrid.empty()) {
+        const auto& d=p.surfaceGrid;s<<" dem "<<d.nx<<' '<<d.ny<<' '<<d.spacing<<' '<<d.originX<<' '<<d.originY<<' '<<d.datum;
+        for(double h:d.elevations)s<<' '<<h;
+    }
     return s.str();
 }
 inline std::string configurationId3D(const SimulationParameters& p) {

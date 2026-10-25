@@ -215,9 +215,11 @@ bool readModelVts3D(const std::filesystem::path &path, ModelDocument3D &document
         auto &p = next.parameters;
 #define REAL(member) p.member = scalar("Parameter_" #member)
 #define INT(member, low, high) p.member = integer(scalar("Parameter_" #member), low, high)
-        INT(nx, 8, 300);
-        INT(ny, 8, 300);
-        INT(nz, 8, 300);
+        INT(nx, 8, maxPhysicalNodesPerAxis3D);
+        INT(ny, 8, maxPhysicalNodesPerAxis3D);
+        INT(nz, 8, maxPhysicalNodesPerAxis3D);
+        require(static_cast<std::size_t>(p.nx+2*ghostWidth3D)*(p.ny+2*ghostWidth3D)*(p.nz+2*ghostWidth3D)<=maxPaddedNodes3D,
+                "Model exceeds the total padded-node budget.");
         REAL(spacing);
         REAL(vp);
         REAL(vs);

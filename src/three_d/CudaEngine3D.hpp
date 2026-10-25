@@ -17,6 +17,7 @@ public:
     void sample(std::vector<ReceiverTrace3D>&);
     void slices(const DisplayRequest3D&,DisplayFrame3D&);
     void download(std::array<std::vector<double>,9>&) const;
+    BackendMemory3D residentMemory() const noexcept;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

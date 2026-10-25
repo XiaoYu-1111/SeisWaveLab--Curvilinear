@@ -30,6 +30,9 @@ struct VisualSettings3D {
     bool showDimensions{true},showCoordinates{true};
     float gridOpacity{.28f};
     bool showTopography{true};
+    bool colorTopography{false};
+    int terrainPalette{7}; // Same palette IDs as wave/material; default Turbo.
+    double terrainLow{},terrainHigh{};
     bool showSlices{true};
     bool showReceivers{true};
     bool showAbsorbingLayer{false};
@@ -111,6 +114,27 @@ inline std::array<float,4> paletteColor3D(double normalized,int palette) {
     const int i=std::min(3,static_cast<int>(t));const float f=static_cast<float>(t-i);
     const auto& stops=RecordPalettes::wavePalette(palette);
     return {stops[i][0]+f*(stops[i+1][0]-stops[i][0]),stops[i][1]+f*(stops[i+1][1]-stops[i][1]),stops[i][2]+f*(stops[i+1][2]-stops[i][2]),1};
+}
+inline constexpr const char* kTerrainPalettes3D=kPalettes3D;
+inline int terrainPalettePreference3D(int value,int version) {
+    constexpr int legacy[]{7,9,1};
+    return version<2?legacy[std::clamp(value,0,2)]:std::clamp(value,0,wavePaletteCount3D-1);
+}
+inline double terrainElevation3D(double depth,const SimulationParameters& p) {
+    return (p.surfaceGrid.empty()?0:p.surfaceGrid.datum)-depth;
+}
+inline void updateTerrainRange3D(VisualSettings3D& v,const Grid3D& grid,const SimulationParameters& p) {
+    v.terrainLow=1e300;v.terrainHigh=-1e300;
+    const int g=grid.ghost;
+    for(int j=g;j<grid.ny-g;++j)for(int i=g;i<grid.nx-g;++i) {
+        const double h=terrainElevation3D(grid.coordinates[grid.index(i,j,g)][2],p);
+        v.terrainLow=std::min(v.terrainLow,h);v.terrainHigh=std::max(v.terrainHigh,h);
+    }
+}
+inline std::array<float,4> terrainColor3D(double elevation,const VisualSettings3D& v) {
+    const double range=v.terrainHigh-v.terrainLow;
+    return paletteColor3D(range>1e-12?(elevation-v.terrainLow)/range:.5,
+                          std::clamp(v.terrainPalette,0,wavePaletteCount3D-1));
 }
 inline std::array<float,4> waveColor3D(double value,const VisualSettings3D& v) {
     const double n=value*v.gain/std::max(v.range,1.0e-20);

@@ -1,4 +1,5 @@
 #include "SceneRenderer3D.hpp"
+#include "SceneCoordinates3D.hpp"
 #include <GL/glew.h>
 #include <algorithm>
 #include <array>
@@ -80,9 +81,14 @@ bool SceneRenderer3D::render(const ISimulationBackend3D& s,const DisplayFrame3D&
     const auto& grid=s.grid();const int g=grid.ghost;
     const double lx=(grid.nx-2*g-1)*grid.dx,ly=(grid.ny-2*g-1)*grid.dy,lz=(grid.nz-2*g-1)*grid.dz;
     const double scale=std::max({lx,ly,lz+2.0*std::abs(grid.topographyAmplitude)});
+    if(fitTopView_) {
+        const double top=(lz*.5-((s.parameters().surfaceGrid.empty()?0:s.parameters().surfaceGrid.datum)-v.terrainHigh))/scale;
+        distance_=static_cast<float>(std::max(.7,top+1.12/std::tan(.42)*.5*std::max(lx/scale*height/width,ly/scale)));
+    }
     auto vertex=[&](int i,int j,int k,std::array<float,4> color) {
         const auto& p=grid.coordinates[grid.index(i,j,k)];
-        return Vertex3D{static_cast<float>((p[0]-lx*0.5)/scale),static_cast<float>(-(p[2]-lz*0.5)/scale),static_cast<float>((p[1]-ly*0.5)/scale),color[0],color[1],color[2],color[3]};
+        const auto xyz=scenePosition3D(p,lx,ly,lz,scale);
+        return Vertex3D{xyz[0],xyz[1],xyz[2],color[0],color[1],color[2],color[3]};
     };
     std::vector<Vertex3D> triangles,lines,points;
     auto plane=[&](int axis,int at) {
@@ -105,11 +111,24 @@ bool SceneRenderer3D::render(const ISimulationBackend3D& s,const DisplayFrame3D&
             triangles.insert(triangles.end(),{p0,p1,p2,p0,p2,p3});
         }
     };
-    if(v.showSlices) { plane(0,g+slice.x);plane(1,g+slice.y);plane(2,g+slice.z); }
+    if(v.showSlices) { plane(0,g+slice.x);plane(1,g+slice.y);if(!v.colorTopography||slice.z!=0)plane(2,g+slice.z); }
+    if(v.colorTopography) {
+        const int nx=grid.nx-2*g,ny=grid.ny-2*g;
+        std::vector<Vertex3D> surface(static_cast<std::size_t>(nx)*ny);
+        for(int j=0;j<ny;++j)for(int i=0;i<nx;++i) {
+            const double elevation=terrainElevation3D(grid.coordinates[grid.index(i+g,j+g,g)][2],s.parameters());
+            surface[static_cast<std::size_t>(j)*nx+i]=vertex(i+g,j+g,g,terrainColor3D(elevation,v));
+        }
+        for(int j=0;j<ny-1;++j)for(int i=0;i<nx-1;++i) {
+            const auto n=static_cast<std::size_t>(j)*nx+i;
+            triangles.insert(triangles.end(),{surface[n],surface[n+1],surface[n+nx+1],surface[n],surface[n+nx+1],surface[n+nx]});
+        }
+    }
     if(v.showTopography) {
-        const std::array<float,4> color{v.wire[0],v.wire[1],v.wire[2],1};
-        for(int j=g;j<grid.ny-g;++j)for(int i=g;i<grid.nx-g-1;++i) { lines.push_back(vertex(i,j,g,color));lines.push_back(vertex(i+1,j,g,color)); }
-        for(int i=g;i<grid.nx-g;++i)for(int j=g;j<grid.ny-g-1;++j) { lines.push_back(vertex(i,j,g,color));lines.push_back(vertex(i,j+1,g,color)); }
+        const std::array<float,4> color=v.colorTopography?std::array<float,4>{.12f,.12f,.12f,.25f}:std::array<float,4>{v.wire[0],v.wire[1],v.wire[2],1};
+        const int stride=v.colorTopography?std::max(1,std::max(grid.nx-2*g,grid.ny-2*g)/60):1;
+        for(int j=g;j<grid.ny-g;++j)if((j-g)%stride==0||j==grid.ny-g-1)for(int i=g;i<grid.nx-g-1;++i) { lines.push_back(vertex(i,j,g,color));lines.push_back(vertex(i+1,j,g,color)); }
+        for(int i=g;i<grid.nx-g;++i)if((i-g)%stride==0||i==grid.nx-g-1)for(int j=g;j<grid.ny-g-1;++j) { lines.push_back(vertex(i,j,g,color));lines.push_back(vertex(i,j+1,g,color)); }
     }
     const std::array<float,4> border{0.35f,0.40f,0.43f,1};
     for(int k:{g,grid.nz-g-1}) {
@@ -150,9 +169,14 @@ void SceneRenderer3D::shutdown() {
     if(vbo_)glDeleteBuffers(1,&vbo_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);
     texture_=framebuffer_=msaaFramebuffer_=colorBuffer_=depthBuffer_=vbo_=vao_=program_=0;width_=height_=0;
 }
-void SceneRenderer3D::orbit(float dx,float dy) { yaw_+=dx*0.007f;pitch_=std::clamp(pitch_+dy*0.007f,-1.45f,1.45f); }
-void SceneRenderer3D::zoom(float delta) { distance_=std::clamp(distance_*std::exp(-delta*0.12f),0.7f,8.0f); }
-void SceneRenderer3D::pan(float dx,float dy) {panX_+=dx*0.002f*distance_;panY_-=dy*0.002f*distance_;}
-void SceneRenderer3D::resetCamera() {yaw_=0.7f;pitch_=0.5f;distance_=2.0f;panX_=panY_=0;}
+void SceneRenderer3D::orbit(float dx,float dy) { fitTopView_=false;yaw_+=dx*0.007f;pitch_=std::clamp(pitch_+dy*0.007f,-1.45f,1.45f); }
+void SceneRenderer3D::zoom(float delta) {if(delta!=0)fitTopView_=false;distance_=std::clamp(distance_*std::exp(-delta*0.12f),0.7f,8.0f); }
+void SceneRenderer3D::pan(float dx,float dy) {fitTopView_=false;panX_+=dx*0.002f*distance_;panY_-=dy*0.002f*distance_;}
+void SceneRenderer3D::resetCamera() {fitTopView_=false;yaw_=0.7f;pitch_=0.5f;distance_=2.0f;panX_=panY_=0;}
+void SceneRenderer3D::topViewCamera() {fitTopView_=true;yaw_=0;pitch_=1.5706963f;distance_=2.0f;panX_=panY_=0;}
+std::array<std::array<float,2>,3> SceneRenderer3D::orientationAxes() const {
+    const auto m=lookAt({std::cos(pitch_)*std::sin(yaw_),std::sin(pitch_),std::cos(pitch_)*std::cos(yaw_)});
+    return {{{m[0],-m[1]},{-m[8],m[9]},{m[4],-m[5]}}}; // X, Y, elevation up; screen Y down.
+}
 void SceneRenderer3D::fitCamera() {distance_=2.0f;panX_=panY_=0;}
 }

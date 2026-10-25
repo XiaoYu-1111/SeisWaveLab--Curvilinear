@@ -102,6 +102,14 @@ CudaEngine3D::CudaEngine3D(const Point::Mesh& mesh,const std::vector<ReceiverTra
     s.sliceBuffer.allocate(maxPlane*sizeof(float));
 }
 CudaEngine3D::~CudaEngine3D()=default;
+BackendMemory3D CudaEngine3D::residentMemory() const noexcept {
+    BackendMemory3D m;if(!impl_)return m;const auto& s=*impl_;
+    m.hostAvailableBytes=sizeof(Impl)+s.hostStats.capacity()*sizeof(Stats)+s.hostReceivers.capacity()*sizeof(double);
+    for(const auto& b:s.fields)m.deviceAvailableBytes+=b.allocatedBytes;
+    for(const auto& b:s.sourceGradient)m.deviceAvailableBytes+=b.allocatedBytes;
+    for(const auto* b:{&s.metrics,&s.normals,&s.jacobian,&s.source,&s.damping,&s.materialLambda,&s.materialMu,&s.materialDensity,&s.statsBuffer,&s.receiverIndices,&s.receiverValues,&s.sliceBuffer})m.deviceAvailableBytes+=b->allocatedBytes;
+    return m;
+}
 void CudaEngine3D::step(double time,double dt,double frequency,int step) {
     auto& s=*impl_;DeviceScope scope(s.device);checked(cudaMemcpy(s.fields[1].pointer,s.fields[0].pointer,9*s.mesh.count*sizeof(double),cudaMemcpyDeviceToDevice),"save step");
     const auto forcing=[&](double t){const double tau=3.14159265358979323846*frequency*(t-1.5/frequency);return s.mesh.sourceAmplitude/(s.mesh.density*s.mesh.h*s.mesh.h*s.mesh.h)*(1-2*tau*tau)*std::exp(-tau*tau);};

@@ -4,7 +4,7 @@
 #include <string>
 
 namespace Seis3D::Curvilinear::Ui {
-// Renders physical curvilinear slices and a terrain wireframe into a viewport-sized multisampled target.
+// Renders physical curvilinear slices, elevation-colored terrain and wireframe.
 class SceneRenderer3D {
 public:
     ~SceneRenderer3D();
@@ -15,12 +15,15 @@ public:
     void zoom(float delta);
     void pan(float dx,float dy);
     void resetCamera();
+    void topViewCamera();
+    [[nodiscard]] std::array<std::array<float,2>,3> orientationAxes() const;
     void fitCamera();
     [[nodiscard]] std::array<float,5> cameraState() const {return {yaw_,pitch_,distance_,panX_,panY_};}
     [[nodiscard]] unsigned texture3D() const { return texture_; }
 private:
     unsigned program_{},vao_{},vbo_{},framebuffer_{},texture_{},msaaFramebuffer_{},colorBuffer_{},depthBuffer_{};
     int width_{},height_{},samples_{1};
+    bool fitTopView_{};
     float yaw_{0.7f},pitch_{0.5f},distance_{2.0f},panX_{},panY_{};
 };
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include "Seis3D/KernelTypes3D.hpp"
+#include "Seis3D/SurfaceGrid3D.hpp"
 #include "SeisCommon/ComputeDevices.hpp"
 #include "SeisCommon/SourceMechanism.hpp"
 
@@ -12,8 +13,10 @@
 
 namespace Seis3D::Curvilinear {
 
-inline constexpr int maxPhysicalNodesPerAxis3D=300;
-inline constexpr std::size_t maxPaddedNodes3D=static_cast<std::size_t>(maxPhysicalNodesPerAxis3D+2*ghostWidth3D)*(maxPhysicalNodesPerAxis3D+2*ghostWidth3D)*(maxPhysicalNodesPerAxis3D+2*ghostWidth3D);
+// Axis safety bound is independent of the total allocation budget. Thin/wide
+// grids may exceed 300 on X/Y while retaining the previous total node budget.
+inline constexpr int maxPhysicalNodesPerAxis3D=4096;
+inline constexpr std::size_t maxPaddedNodes3D=306ull*306*306;
 inline constexpr int maxTimeSteps3D=20000,maxCpuThreads3D=64;
 inline constexpr double minCflCoefficient3D=.02;
 inline constexpr double maxCflCoefficient3D=.8;
@@ -31,6 +34,8 @@ struct Grid3D {
     double topographyAmplitude{35.0};
     double topographyWavelength{240.0};
     double terrainTransitionDepth{};
+    SurfaceGrid3D surfaceGrid;
+    bool hasTerrain() const {return !surfaceGrid.empty()||topographyAmplitude!=0;}
     std::vector<std::array<double, 3>> coordinates;
     std::vector<std::array<double, 9>> inverseMetrics;
     std::vector<double> jacobian;
@@ -38,6 +43,7 @@ struct Grid3D {
 
     [[nodiscard]] std::size_t index(int i, int j, int k) const noexcept;
     [[nodiscard]] bool buildGeometry(std::string& error);
+    [[nodiscard]] bool validateGeometry(std::string& error); // No volume allocation; resolves flatten depth.
     [[nodiscard]] std::size_t physicalPointCount() const noexcept;
     [[nodiscard]] GridLayout3D layout() const noexcept;
 };
@@ -82,6 +88,7 @@ struct SimulationParameters {
     double topographyAmplitude{20.0};
     double topographyWavelength{300.0};
     double terrainTransitionDepth{}; // 0 selects an automatic shallow transition to horizontal layers.
+    SurfaceGrid3D surfaceGrid; // Embedded in reproducible models; empty selects analytic terrain.
     ReceiverArraySettings3D receiverArray;
     AbsorbingBoundarySettings3D absorbingBoundary;
     bool operator==(const SimulationParameters&) const = default;
@@ -168,6 +175,7 @@ public:
     virtual double dt() const noexcept=0;
     virtual std::uint64_t revision() const noexcept=0;
     virtual BackendInfo3D backendInfo() const noexcept=0;
+    virtual BackendMemory3D residentMemory() const noexcept=0;
     virtual const Grid3D& grid() const=0;
     virtual const SimulationParameters& parameters() const=0;
     virtual const Diagnostics3D& diagnostics() const=0;
@@ -200,6 +208,7 @@ public:
     [[nodiscard]] SimulationResult snapshot() const;
     [[nodiscard]] std::uint64_t revision() const noexcept override;
     [[nodiscard]] BackendInfo3D backendInfo() const noexcept override;
+    [[nodiscard]] BackendMemory3D residentMemory() const noexcept override;
     [[nodiscard]] bool readDisplayFrame(const DisplayRequest3D&,DisplayFrame3D&,std::string&) const override;
 private:
     struct Impl;
@@ -210,6 +219,13 @@ private:
 
 // Unavailable CUDA selection fails explicitly; it never silently runs a different engine.
 [[nodiscard]] std::unique_ptr<ISimulationBackend3D> createSimulationBackend3D(BackendKind3D,std::string& error);
+
+// UI rebuilds release the old volume before allocating its replacement. Direct
+// initialize remains transactional for callers that need to retain live fields.
+struct RebuildOutcome3D {bool success{},released{},restored{},fallback{};BackendMemory3D reclaimed;};
+bool validateSimulationConfiguration3D(const SimulationParameters&,BackendKind3D,std::string&,const ComputeSettings3D& = {});
+BackendMemory3D memoryForRebuild3D(const ISimulationBackend3D*,BackendKind3D,int cudaDevice=-1);
+RebuildOutcome3D rebuildSimulation3D(std::unique_ptr<ISimulationBackend3D>&,const SimulationParameters&,BackendKind3D,const ComputeSettings3D&,std::string&);
 
 // Builds a body-fitted elastic model and advances alternating DRP/RK stages
 // on the application-preferred backend.

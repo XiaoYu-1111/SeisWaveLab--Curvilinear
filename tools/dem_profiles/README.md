@@ -8,11 +8,49 @@
 2. 修改参数区的 `DEM_PATH`。当前已填写用户指定的 `3_jingbiancenter.dem` 路径；输出自动定位到项目外层 `out/dem_profiles`，也可修改 `OUTPUT_DIR`。
 3. 从上到下运行，查看实际尺寸、分辨率、单位和坐标。使用 X/Y 起点偏移滑条平移区域，宽度/高度滑条调整范围；横向沿 X 增大、纵向沿 Y 增大，剖面位置以米显示。无旋转栅格以最左下像元中心作为偏移原点，避免选到数据范围外的半像元边界。
 4. 用“截取起点”和“截取长度”滑条定位需要的段，终点自动同步；可用左右按钮按给定米数微移起点。默认在滑条释放后自动更新地图与剖面，也可关闭自动更新再手动点击“更新剖面”。终点数值填 0 仍表示取到末尾。
-5. 点击“导出当前参数”。导出动作会重新读取当前控件，避免参数已经修改而仍保存上次预览的结果。每次输出到独立时间戳文件夹。
+5. 点击“导出剖面结果”。导出动作会重新读取当前控件，避免参数已经修改而仍保存上次预览的结果。每次输出到独立时间戳文件夹。
 
 当前机器已在项目外层 `out/venv-dem` 安装验证依赖，VS Code 可直接选择其中 `Scripts/python.exe` 作为内核。其他环境若遇到已有镜像的 TLS 错误，可用 `python -m pip install --index-url https://pypi.org/simple -r requirements.txt` 改走官方 PyPI；Notebook 安装提示也显式使用该地址。
 
-同目录的 `dem_profiles.py` 提供读写和采样，`profile_selector.py` 提供滑条和鼠标交互。换位置使用时，请保留 Notebook、这两个模块及 requirements 文件；不需要修改或重新编译波场程序。
+同目录的 `dem_profiles.py` 提供读写和采样，`profile_selector.py` 提供一维剖面交互，`region_selector.py` 提供独立二维区域交互。换位置使用时，请保留 Notebook、这三个模块及 requirements 文件；不需要修改或重新编译波场程序。
+
+## 二维区域高程数组导出
+
+Notebook 第 4 节只导出一维剖面；第 9 节是独立的二维区域面板。两个面板各自持有地图、选区、参数和导出按钮，互不引用状态。二维面板支持鼠标拖框，也可精确输入 X 宽度、Y 长度和左下角偏移（米）；平移 / 缩放后点击“恢复框选”。修改宽度导致区域越界时，仅将起点移回有效范围，保留输入的尺寸。
+
+默认居中 1 km × 1 km，按 X 点数 300 自动得到 Y 点数 300。`RUN_REGION_TEST=True` 会生成该测试集；设为 False 仅显示面板。每次“导出二维区域”将区域文件和图件统一保存到外层 `out/dem_profiles/regions/region_时间戳`，与剖面结果目录独立。
+
+新增文件：
+
+| 文件 | 内容 |
+| --- | --- |
+| `surface_grid_Nx×Ny_h间距m.vti` | VTK ImageData，规则 XY 数组，Elevation 点标量保存实际米制高程 |
+| `surface_grid_Nx×Ny_h间距m.vts` | VTK StructuredGrid，单层地表，XYZ 分别为源平面坐标和实际高程 |
+| `surface_grid_*_h*m_elevations.csv` | 无表头的高程矩阵，默认 **300 行 × 300 列** |
+| `surface_grid_*_h*m_metadata.json` | 请求选区、实际导出范围、插值、单位、行列方向及源数据说明 |
+| `surface_grid_*_h*m_map.png/.pdf/.svg` | 采样后的区域图，jet 色标位于下方 |
+
+导出格式下拉框仅提供 **VTI + VTS、VTI、VTS**，默认同时导出。三维地表导入也只接受这两种格式。文件名示例：`surface_grid_500x400_h2m.vti`，数据、CSV、JSON、图件使用同一个含采样间隔的前缀；文件名最多显示 12 位有效数字，文件内部使用完整的 Float64 精度。
+
+VTI 的 Z 仅一层，几何为平面 XY 图像，实际高程保存在 `Elevation` 点标量；在 ParaView 中选择 `Elevation` 使用 Warp By Scalar（Scale Factor=1、法向 +Z）得到起伏地表。VTS 直接保存 `(源 X, 源 Y, 实际高程)`，可直接查看地表。两者均含 `ElevationDatum_m`、`HorizontalSpacing_m`、米制单位与高程向上标志，导入后使用相同基准；不含该基准字段的外部文件默认取高程均值。
+
+当前程序导入限定为单 Piece、单 Z 层、XY 等间距、单位为米的 ASCII VTI/VTS（Float64 / Float32）；不接受体模型、歪斜网格、非等距 XY 或 binary/appended/压缩数组。外部文件需先按此范围导出。体模型仍使用原有“模型 VTS”入口，不使用地表入口。
+
+数组按 `[y][x]` 排列，第一行位于最小 Y，列沿 X 增大，保存真实高程，不减均值。三维模型使用 `Z=基准-高程`，与数组高程向上的约定相对应。
+
+精确矩形保持原长宽，X/Y 使用同一间距，Y 点数自动计算：
+
+| 方式 | 1000 m × 800 m 的例子 |
+| --- | --- |
+| 按 X 点数，不含末端（默认） | X=500 → 间距 2 m，500 × 400 点 |
+| 按间距，不含末端（默认） | h=2 m → 500 × 400 点 |
+| 按间距，包含末端 | h=2 m → 501 × 401 点 |
+
+不含末端采用半开范围 `[起点,终点)`，1 km 取 500 点是 2 m 采样，节点为 0,2,…,998 m；三维实际节点跨度是 998 m，不能把选区宽度误作节点跨度。包含末端按点数时为 `L/(N−1)`；按固定间距时仅在整除长度时包含终点，不追加短间隔。非整除情形保留小于一个间距的末端余量。两类尺寸与端点规则均在面板显示并记录到 JSON。每轴 2..4096、总高程数不超过 4,000,000；超预算或不足两点时拒绝导出。
+
+区域数组只取独立面板选区，不读取剖面选线或地图视口。NoData 拒绝整块导出，不填零、不拼接有效片段。需先确认水平长度单位；加密输出仅是插值，不提高源 DEM 真实分辨率。
+
+独立调用：`export_surface_grid(dem, roi, OUTPUT_DIR, nx=500)`（Y 点数自动计算）；或 `export_surface_grid(dem, roi, OUTPUT_DIR, spacing_m=2, formats=("vti","vts"))`。显式 `nx=300, ny=300` 仍支持按点数比例居中内接的底层调用，UI 不使用此模式。只采样用 `sample_surface_grid`；`surface_grid_geometry` 可预检参数而不分配数组。
 
 ## 滑条与鼠标定位
 
@@ -107,3 +145,5 @@ NoData 或范围外位置保持无效，不填成零高程，且拒绝直接导�
 ## 技术依据
 
 [Rasterio 栅格读取](https://rasterio.readthedocs.io/en/stable/topics/reading.html)、[窗口读取](https://rasterio.readthedocs.io/en/stable/topics/windowed-rw.html)、[GDAL USGSDEM 说明](https://gdal.org/en/stable/drivers/raster/usgsdem.html)、[GDAL USGSDEM 读取器源码](https://github.com/OSGeo/gdal/blob/v3.10.3/frmts/usgsdem/usgsdemdataset.cpp)、[PyProj CRS](https://pyproj4.github.io/pyproj/stable/api/crs/crs.html)、[Matplotlib 矩形选择器](https://matplotlib.org/stable/gallery/widgets/rectangle_selector.html)。本模块的兼容分支是独立 Python 实现，对源记录进行校验，不向用户 DEM 写入修补后的伪投影代码。
+
+VTI / VTS 格式依据：[VTK XML 文件规范](https://docs.vtk.org/en/latest/vtk_file_formats/vtkxml_file_format.html)。

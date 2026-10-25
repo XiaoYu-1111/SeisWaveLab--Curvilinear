@@ -1,5 +1,8 @@
 #include "Workbench2D.hpp"
 #include "AppRuntime.hpp"
+#include "GlassMaterial.hpp"
+#include "ParameterPanelHost.hpp"
+#include "ThemeValidation.hpp"
 #include "Presentation3D.hpp"
 #include "RecordPalettes3D.hpp"
 #include "RecordView.hpp"
@@ -122,6 +125,8 @@ struct Workbench {
     bool layout{true}, domainVisible{}, focusParameters{};
     int lastWidth{};
     float recordHeight{};
+    SeisWave::Ui::ParameterPanelHost parameterHost{2};
+    int floatingCategory{},lastParameterMode{};
     bool parameterWindow{true}, waveWindow{true}, recordWindow{true}, summaryWindow{true};
     int groupEpoch{};
     bool groupsExpanded{true};
@@ -428,8 +433,10 @@ struct Workbench {
                 ImGui::MenuItem(l("Active parameters", "当前生效参数"), nullptr, &summaryWindow);
                 ImGui::MenuItem(l("Wavefield", "波场窗口"), nullptr, &waveWindow);
                 ImGui::MenuItem(l("Receivers", "接收记录"), nullptr, &recordWindow);
-                if (ImGui::MenuItem(l("Restore layout [F]", "恢复布局 [F]")))
+                if (ImGui::MenuItem(l("Restore layout [F]", "恢复布局 [F]"))) {
+                    SeisWave::Ui::setParameterDisplayMode(2,0);
                     parameterWindow = summaryWindow = waveWindow = recordWindow = layout = true;
+                }
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu(l("Appearance", "界面外观"))) {
@@ -450,8 +457,10 @@ struct Workbench {
                     SeisWave::Ui::setInterfaceFontSize(font);
                     layout = true;
                 }
+                glassAppearanceControls3D();
                 ImGui::EndMenu();
             }
+            if(ImGui::BeginMenu(l("Parameter panels","参数面板"))){if(parameterHost.menu()){parameterWindow=true;layout=true;}ImGui::EndMenu();}
             if (button("Help [F1]", "帮助 [F1]", FunctionRole3D::Display))
                 help = !help;
             ImGui::EndMainMenuBar();
@@ -498,6 +507,7 @@ struct Workbench {
                          ImGuiWindowFlags_NoSavedSettings);
         const auto id = ImGui::GetID("2DDock");
         ImGui::DockSpace(id, {0, 0});
+        if(lastParameterMode!=parameterHost.mode()){lastParameterMode=parameterHost.mode();layout=true;}
         if (layout || lastWidth != static_cast<int>(vp->Size.x) ||
             lastHeight != static_cast<int>(vp->Size.y)) {
             fit = true;
@@ -505,15 +515,15 @@ struct Workbench {
             ImGui::DockBuilderAddNode(id, ImGuiDockNodeFlags_DockSpace);
             ImGui::DockBuilderSetNodeSize(id, {vp->WorkSize.x - 24, vp->WorkSize.y - height - 20});
             ImGuiID main = id, left{}, records{};
-            ImGui::DockBuilderSplitNode(main, ImGuiDir_Left,
+            if(parameterHost.mode()!=1)ImGui::DockBuilderSplitNode(main, ImGuiDir_Left,
                                         std::clamp(ImGui::GetFontSize() * 20.f / vp->Size.x, .25f, .40f),
                                         &left, &main);
             focusParameters = true;
             const float recordRatio =
                 std::clamp((ImGui::GetFontSize() * 7 + 110) / vp->WorkSize.y, .31f, .50f);
             ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, recordRatio, &records, &main);
-            ImGui::DockBuilderDockWindow(label("Parameters and run", "参数与运行").c_str(), left);
-            ImGui::DockBuilderDockWindow(label("Active simulation parameters", "当前模拟参数").c_str(), left);
+            if(parameterHost.mode()!=1)ImGui::DockBuilderDockWindow(label("Parameters and run", "参数与运行").c_str(), left);
+            if(parameterHost.mode()!=1)ImGui::DockBuilderDockWindow(label("Active simulation parameters", "当前模拟参数").c_str(), left);
             ImGui::DockBuilderDockWindow(label("Curved X-Z wavefield", "曲面 X–Z 波场").c_str(), main);
             ImGui::DockBuilderDockWindow(label("Receiver records", "接收记录").c_str(), records);
             ImGui::DockBuilderFinish(id);
@@ -858,17 +868,20 @@ struct Workbench {
             ImGui::EndPopup();
         }
     }
-    void controls() {
-        if (!parameterWindow)
-            return;
-        if (focusParameters) {
-            ImGui::SetNextWindowFocus();
-            focusParameters = false;
-        }
-        if (!ImGui::Begin(label("Parameters and run", "参数与运行").c_str(), &parameterWindow)) {
-            ImGui::End();
-            return;
-        }
+    void controls(){if(parameterHost.mode()!=1)controlsPanel(false);}
+    void floatingControls(){
+        if(parameterHost.mode()==0)return;
+        std::swap(category,floatingCategory);controlsPanel(true);std::swap(category,floatingCategory);
+    }
+    void controlsPanel(bool floating) {
+        if(!floating&&!parameterWindow)return;
+        if(!floating&&focusParameters){ImGui::SetNextWindowFocus();focusParameters=false;}
+        const auto title=floating?label("Floating parameters 2D","悬浮参数 · 二维"):label("Parameters and run","参数与运行");
+        if(floating)parameterHost.prepare(title.c_str());
+        bool open=true;const bool visible=ImGui::Begin(title.c_str(),floating?&open:&parameterWindow,floating?parameterHost.flags():0);
+        if(floating&&!open)SeisWave::Ui::setParameterDisplayMode(2,0);
+        if(!visible){ImGui::End();return;}
+        if(floating)parameterHost.tools();
         const char *en[]{"Model", "Survey", "Run", "Display", "Export"};
         const char *zh[]{"建模", "采集", "运行", "显示", "导出"};
         const float width =
@@ -1240,7 +1253,7 @@ struct Workbench {
         ImGui::End();
     }
     void activeParameters() {
-        if (!summaryWindow)
+        if (!summaryWindow||parameterHost.mode()==1)
             return;
         if (!ImGui::Begin(label("Active simulation parameters", "当前模拟参数").c_str(), &summaryWindow)) {
             ImGui::End();
@@ -1592,8 +1605,10 @@ struct Workbench {
                 }
                 if (ImGui::IsKeyPressed(ImGuiKey_R))
                     fit = true;
-                if (ImGui::IsKeyPressed(ImGuiKey_F))
+                if (ImGui::IsKeyPressed(ImGuiKey_F)) {
+                    SeisWave::Ui::setParameterDisplayMode(2,0);
                     parameterWindow = summaryWindow = waveWindow = recordWindow = layout = true;
+                }
                 if (ImGui::IsKeyPressed(ImGuiKey_G))
                     grid = !grid;
                 if (ImGui::IsKeyPressed(ImGuiKey_B))
@@ -1688,7 +1703,7 @@ int validateModelWorkflow2D() {
         if (i >= 3) app.staged.frequency = 60; // Visible pending marker without modifying active dt.
         for (int frame = 0; frame < 4; ++frame) {
             runtime.begin();
-            app.toolbar(); app.controls(); app.activeParameters(); app.wavefield(); app.records();
+            app.toolbar(); app.controls(); app.activeParameters(); app.wavefield(); app.records(); app.floatingControls();
             runtime.present();
         }
         const auto *parameters = ImGui::FindWindowByName(label("Parameters and run", "参数与运行").c_str());
@@ -1790,7 +1805,9 @@ int validateModelWorkflow2D() {
                  "responsive summary in 6 bilingual/theme/size/font layouts; actual snapshot controls follow pressure / manual Vz+pressure export; legacy SEG-Y gain/sampling\n";
     return 0;
 }
+#include "ThemePanelValidation2D.inc"
 int runWorkbench2D(bool smoke, bool homeTest) {
+    if(smoke)SeisWave::Ui::setParameterDisplayMode(2,0);
     std::string error;
     SeisWave::Ui::AppRuntime runtime;
     if (!runtime.open("SeisWave Lab · Curvilinear | 2D P-SV | CPU / CUDA", smoke, error)) {
@@ -2137,6 +2154,8 @@ int runWorkbench2D(bool smoke, bool homeTest) {
             app.running = false;
         app.wavefield();
         app.records();
+        app.floatingControls();
+        if(app.dirty())app.running=false;
         app.shortcuts();
         runtime.present();
         if (app.home) {
