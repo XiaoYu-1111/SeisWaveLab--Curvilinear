@@ -91,12 +91,12 @@ ImGui/ImPlot 源码及许可保存在 `third_party`；公共头文件通过目�
 
 发送 Release 程序时保留同级 DLL、`shaders`、`licenses`；目标机安装相应 MSVC 运行库，支持 OpenGL 4.3，CUDA 还需兼容的 NVIDIA 驱动。无需安装完整 CUDA Toolkit。较小显存卡需要相应降低模型尺寸。
 
-当前默认导出与界面偏好目录仍由编译时的外层 out 决定，不会自动跟随 EXE 移动。跨计算机分发需确认默认位置可写，或为部署环境重新配置；手动选择 VTS/CSV 路径只改变对应导出目标。独立的运行时数据目录配置尚待完善。
+运行时数据目录已支持迁移：标准 out/bin/<配置> 构建使用其对应的外层 out；EXE 旁存在 portable.flag 时优先使用旁边的 userdata；移出构建树的普通副本也使用旁边的 userdata。二维、三维及 MASW 共用该规则。请将便携包完整解压到可写目录。完整运行包、源码包和发布步骤见 [Release 发布与重建](RELEASE_DISTRIBUTION.md)。
 
 ## 项目标识与目录迁移
 
 产品显示名为 **SeisWave Lab · Curvilinear**，本地工作区为 `SeisWaveLab_Curvilinear_Workspace`，独立 Git 仓库和 GUI CMake 目标均为 `SeisWaveLab_Curvilinear`；主程序为 `../out/bin/<配置>/SeisWaveLab_Curvilinear.exe`。二维、三维数值命名空间、库名、验证程序及 `SEIS3D_*` 选项保持原接口，模型和记录格式保持兼容。
 
-从旧目录迁移时应整体移动 `.git`、源码、资源和同级 `out`；模拟数据与 DEM 工作流继续位于外层 `out`。绝对路径记录在旧 CMake 缓存及已编译程序中，因此迁移后必须从新仓库目录重新配置并构建 Release/Debug，不能只给旧 EXE 改名。原缓存和旧主程序可留在外层 `out/archive`，不加入源码仓库。VS 请关闭原文件夹，重新打开新仓库目录并选择新的 GUI 启动目标。
+迁移开发工作区时，应整体移动 `.git`、源码、资源和同级 `out`；模拟数据与 DEM 工作流继续位于外层 `out`。CMake 缓存保留旧绝对路径，迁移后仍需从新仓库目录重新配置并构建 Release/Debug。分发运行程序不需要开发缓存或 .git，完整便携包可直接移动。原缓存和旧主程序可留在外层 `out/archive`，不加入源码仓库。VS 请关闭原文件夹，重新打开新仓库目录并选择新的 GUI 启动目标。
 
 本地改名不修改 GitHub 上的仓库名或 `origin`。如另行在 GitHub 更名，确认新地址已存在后再执行 `git remote set-url origin <新地址>`；当前已有文章的 `seis3d-curvilinear` 页面路径及附件目录保留，避免已发布链接失效。

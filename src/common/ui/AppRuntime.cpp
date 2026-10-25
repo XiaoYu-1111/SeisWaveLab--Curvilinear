@@ -99,7 +99,27 @@ void setInterfaceFontSize(float size) {
         interfaceFont = std::clamp(size, 16.f, 28.f);
 }
 std::filesystem::path outputRoot() {
-    return SEIS3D_OUTPUT_ROOT;
+    // A portable marker wins even when the package is being tested inside out.
+    // Build-tree programs keep the workspace out; moved programs use local userdata.
+    static const auto root=[] {
+        std::filesystem::path executable;
+#ifdef _WIN32
+        std::vector<wchar_t> name(32768);
+        const auto length=GetModuleFileNameW(nullptr,name.data(),static_cast<DWORD>(name.size()));
+        if(length&&length<name.size())executable=std::filesystem::path(name.data());
+#else
+        std::error_code error;executable=std::filesystem::read_symlink("/proc/self/exe",error);
+#endif
+        if(!executable.empty()) {
+            const auto folder=executable.parent_path();std::error_code error;
+            if(std::filesystem::is_regular_file(folder/"portable.flag",error))return folder/"userdata";
+            for(auto at=folder;!at.empty()&&at!=at.parent_path();at=at.parent_path())
+                if(at.filename()=="bin"&&at.parent_path().filename()=="out")return at.parent_path();
+            return folder/"userdata";
+        }
+        return std::filesystem::path(SEIS3D_OUTPUT_ROOT);
+    }();
+    return root;
 }
 std::filesystem::path elevationExampleRoot() {
 #ifdef _WIN32

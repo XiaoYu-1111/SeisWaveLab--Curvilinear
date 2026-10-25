@@ -51,13 +51,9 @@ namespace Seis3D::Curvilinear::Ui {
 namespace {
 
 
-// Uses a stable output root so VS and command-line starts share exports and layout settings.
+// Both dimensions and auxiliary tools share the same relocatable runtime data root.
 std::filesystem::path outputRoot3D() {
-#ifdef SEIS3D_OUTPUT_ROOT
-    return SEIS3D_OUTPUT_ROOT;
-#else
-    return "out";
-#endif
+    return SeisWave::Ui::outputRoot();
 }
 std::string utf8Path3D(const std::filesystem::path& path) {const auto s=path.u8string();return {s.begin(),s.end()};}
 std::filesystem::path fromUtf8Path3D(const char* value) {

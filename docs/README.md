@@ -20,6 +20,7 @@
 | 二维/三维三档 CPU/CUDA 实测、倍速曲线与原始数据 | [性能对比报告（2026-10-19）](PERFORMANCE_BENCHMARK.md) |
 | 分层介质与图标资源 | [层状模型](LAYERED_MODELS.md) |
 | VS、依赖、外部输出、设备选择与分发 | [构建说明](BUILDING.md) |
+| 可运行便携包、完整源码包、相对依赖与 GitHub Release | [Release 发布与重建](RELEASE_DISTRIBUTION.md) |
 | Git 上传内容及仓库边界 | [仓库组织](REPOSITORY_LAYOUT.md) |
 | 已验证事项与证据边界 | [数值验证状态](NUMERICS_AND_VALIDATION.md) |
 
