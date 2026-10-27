@@ -4,6 +4,9 @@
 | --- | --- |
 | 项目背景、方法概览、软件架构、界面、应用与参考文献 | [仓库首页说明](../README.md) |
 | 不同主频四组实验、面波频散及反演恢复的可配置重绘 | [实验绘图 Notebook](../tools/seismic_plotting/README.md) |
+| 布局、后台计算、材质缓存、复现和采集评价 | [优化进展与后续工作](OPTIMIZATION_PROGRESS.md) |
+| 二维 Qp/Qs、论文目录、解析验证与受控模拟 | [二维黏弹性与复现](QP_QS_VISCOELASTIC_2D.md) |
+| 默认地表、VTI/VTS 导入、动态预算和高程配色 | [三维外部 DEM](EXTERNAL_DEM_3D.md) |
 | 二维/三维模型 VTS 复现与所选波场分量、记录导出 | [模型与波场数据交换](MODEL_AND_WAVEFIELD_IO.md) |
 | 实际 DEM 预览、横/纵剖面、范围选择与 CSV 导出 | [DEM 剖面提取 Notebook](../tools/dem_profiles/README.md) |
 | 控制方程、交错/同位网格比较、曲网格映射、DRP/RK 与稳定性 | [曲网格波场理论整理](CURVILINEAR_WAVE_THEORY.md) |
@@ -38,4 +41,4 @@ python -B tools/package_documentation.py
 
 两版博客同源，只适配 front matter 和资源路径。Hexo 保持 `![说明](01-model.png)`，PNG 放在文章同名资源目录。已验证的 NexT / kramed 兼容修复见[Hexo 数学公式设置](HEXO_MATH.md)。打包工具不修改网站或推送。
 
-当前截图全部保留原生 2560×1494 完整客户区。三维重新采集用 `--capture-workflow`，二维用 `--capture-2d`，主页用 `--smoke-home`；二维完整流程位于 `../out/screenshots/two-d-workflow`。三维输出位于 `../out/screenshots/curvilinear-workflow`；`python -B tools/analyze_dispersion.py` 输出位于 `../out/validation/dispersion`。采集后先复核图像、参数及解释，再运行 `python -B tools/publish_screenshots.py` 无损转换到 `docs/images`，最后重新打包。不要复制原始帧、构建日志或模拟中间文件进入 docs。
+全部34张界面图于2026-10-27重新采集，统一红黄橙主题，原生2560×1494完整窗口；二维采用参数/波场/记录并列布局，三维记录页扩大显示高度，默认DEM补充turbo空间图与俯视图。完整列表见[界面图集](SCREENSHOT_GALLERY.md)。性能与数值分析曲线保留原始数据来源和实验日期。重新采集入口为`--capture-workflow`、`--capture-2d`、`--smoke-home`；复核后使用`tools/publish_screenshots.py`无损发布，再重新打包。

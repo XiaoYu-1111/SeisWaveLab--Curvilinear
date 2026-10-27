@@ -8,5 +8,7 @@ void glassPrepareBackdrop();
 void glassPreparePopups();
 void destroyGlassBackdrop();
 int glassBackdropPasses();
+int glassBackdropRefreshes();
+void setGlassSceneActive(bool);
 const std::string& glassBackdropError();
 }

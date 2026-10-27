@@ -3,12 +3,14 @@ import json
 import numpy as np
 from scipy import signal,optimize
 from matplotlib import pyplot as plt
+from .publication import resolve_style,ordered_components,velocity_scale
+from .io import read_vts
 from .core import (setup,save,load_cases,records,gain,axes_grid,gather_image,grid_data,
                    spatial,symlog,wave_colorbar,snapshot_rows,write_rows,PALETTE)
 
 class FourCaseStudy:
     def __init__(self,cfg):
-        self.cfg=cfg;self.out=setup(cfg)
+        cfg=resolve_style(cfg);self.cfg=cfg;self.out=setup(cfg)
         self.datasets=[dict(config=d,cases=load_cases(d),label=d.get('label',f'dataset_{i+1}')) for i,d in enumerate(cfg['datasets'])]
         if not self.datasets:raise ValueError('Configure at least one input dataset')
         if len({d['label'] for d in self.datasets})!=len(self.datasets):raise ValueError('Dataset labels must be unique')
@@ -40,25 +42,44 @@ class FourCaseStudy:
         write_rows(self.out/'data/input_inventory.csv',rows);return rows
 
     def plot_records(self):
-        cfg=self.cfg;opt=cfg.get('records',{});files=[]
+        cfg=self.cfg;opt=cfg.get('records',{});files=[];policies=[]
+        layouts=opt.get('layouts',['component_matrices'])
+        if set(layouts)-{'component_matrices','component_pairs'}:raise ValueError('Unknown records layout')
         for d in self.datasets:
-            components=sorted(set.intersection(*(set(c['components']) for c in d['cases'])))
-            for comp in components:
-                gs=[self.get(d,c,comp) for c in d['cases']]
-                selected=np.concatenate([g.values[self.mask(g)].ravel() for g in gs])
-                raw_limit=max(float(np.quantile(abs(selected),opt.get('clip_quantile',.997))),1e-30)
-                for mode in opt.get('modes',['raw','rms','agc']):
-                    arrays=[]
-                    for g in gs:
-                        rms=np.sqrt(np.mean(np.trapezoid(g.values[self.mask(g)]**2,g.t,axis=-1))/max(g.t[-1],g.dt))
-                        arrays.append(gain(g.values,g.dt,mode,opt.get('agc_window_s',.3),opt.get('agc_floor',.01),opt.get('agc_edge','truncated'),opt.get('agc_odd_window',False),rms))
-                    limit=raw_limit if mode=='raw' else opt.get('agc_clip',3.) if mode=='agc' else max(float(np.quantile(abs(np.concatenate([a.ravel() for a in arrays])),.997)),1e-30)
-                    fig,axs=axes_grid(len(gs),2)
-                    for ax,c,g,a in zip(axs,d['cases'],gs,arrays):
-                        im=gather_image(ax,g,a,c['case'].get('label',c['case']['id']),cfg,limit)
-                    fig.colorbar(im,ax=axs,label=f'{comp} / (m/s)' if mode=='raw' else f'{comp} / RMS（显示增益）')
-                    fig.suptitle(f'{d["label"]}  {comp}  {mode}，共同截幅±{limit:.3g}')
-                    files+=save(fig,self.out,f'{d["label"]}_gathers_{comp}_{mode}',cfg)
+            components=ordered_components(set.intersection(*(set(c['components']) for c in d['cases'])),opt.get('component_order',['Vz','Vx']))
+            if 'component_matrices' in layouts:
+                for comp in components:
+                    gs=[self.get(d,c,comp) for c in d['cases']]
+                    raw_limit=opt.get('raw_limit_m_s')
+                    if raw_limit is None:raw_limit=max(float(np.quantile(abs(np.concatenate([g.values[self.mask(g)].ravel() for g in gs])),opt.get('clip_quantile',.997))),1e-30)
+                    for mode in opt.get('modes',['raw','rms','agc']):
+                        arrays=[]
+                        for g in gs:
+                            rms=np.sqrt(np.mean(np.trapezoid(g.values[self.mask(g)]**2,g.t,axis=-1))/max(g.t[-1],g.dt))
+                            arrays.append(gain(g.values,g.dt,mode,opt.get('agc_window_s',.3),opt.get('agc_floor',.01),opt.get('agc_edge','truncated'),opt.get('agc_odd_window',False),rms))
+                        limit=raw_limit if mode=='raw' else opt.get('agc_clip',3.) if mode=='agc' else max(float(np.quantile(abs(np.concatenate([a.ravel() for a in arrays])),.997)),1e-30)
+                        fig,axs=axes_grid(len(gs),2)
+                        for ax,c,g,a in zip(axs,d['cases'],gs,arrays):im=gather_image(ax,g,a,c['case'].get('label',c['case']['id']),cfg,limit,mode=mode)
+                        scale,unit=velocity_scale(opt.get('velocity_unit','m/s')) if mode=='raw' else (1.,'RMS')
+                        fig.colorbar(im,ax=axs,location=opt.get('colorbar_location','bottom'),shrink=.8,aspect=70,pad=.06,label=f'{comp} / ({unit})'+('，显示增益，非原始振幅' if mode!='raw' else '，无AGC'))
+                        fig.suptitle(f'{d["label"]}  {comp}  {mode}，共同显示限幅±{limit*scale:g}')
+                        files+=save(fig,self.out,f'{d["label"]}_gathers_{comp}_{mode}',cfg)
+                        policies.append(dict(dataset=d['label'],component=comp,layout='component_matrices',mode=mode,limit=limit*scale,unit=unit))
+            if 'component_pairs' in layouts:
+                if components[:2]!=['Vz','Vx']:raise ValueError('component_pairs requires both Vz and Vx')
+                by_id={c['case']['id']:c for c in d['cases']}
+                for group in opt.get('pair_groups',[]):
+                    cases=[by_id[cid] for cid in group['cases']];limit=group['raw_limit_m_s']
+                    if not np.isfinite(limit) or limit<=0:raise ValueError('Pair group raw_limit_m_s must be positive')
+                    fig,axs=plt.subplots(len(cases),2,figsize=(12,3.25*len(cases)),layout='constrained',squeeze=False)
+                    for row,c in enumerate(cases):
+                        for col,comp in enumerate(['Vz','Vx']):
+                            g=self.get(d,c,comp);im=gather_image(axs[row,col],g,g.values,f'{c["case"]["id"]}  {comp}  {d["label"]}',cfg,limit,relative=True,mode='raw')
+                    _,unit=velocity_scale(opt.get('velocity_unit','m/s'))
+                    fig.colorbar(im,ax=list(axs.flat),location='bottom',aspect=75,shrink=.8,pad=.06,label=f'原始速度 / ({unit})，同组共同色限，无AGC；左Vz、右Vx')
+                    files+=save(fig,self.out,f'{d["label"]}_gathers_{group["id"]}_Vz_Vx_raw',cfg)
+                    policies.append(dict(dataset=d['label'],component='Vz,Vx',layout='component_pairs',mode='raw',limit=limit,unit='m/s',group=group['id']))
+        write_rows(self.out/'data/record_display_policy.csv',[{k:r.get(k,'') for k in ['dataset','component','layout','mode','limit','unit','group']} for r in policies])
         return files
 
     def plot_models(self,shallow=False):
@@ -70,7 +91,7 @@ class FourCaseStudy:
             scale=limits or [min(float(a[3]['full_min']) for a in data),max(float(a[3]['full_max']) for a in data)]
             fig,axs=axes_grid(len(data),2)
             for ax,c,(x,z,a,_) in zip(axs,d['cases'],data):
-                im=spatial(ax,x,z,a,c['case'].get('label',c['case']['id']),opt.get('cmap','viridis'),limits=scale,options=opt)
+                im=spatial(ax,x,z,a,c['case'].get('label',c['case']['id']),opt.get('cmap','turbo'),limits=scale,options=opt)
                 source=c['meta'].get('source_x_m')
                 if source is not None:
                     xx=0 if opt.get('relative_x') else source
@@ -83,36 +104,38 @@ class FourCaseStudy:
     def plot_wavefields(self,tag=''):
         opt=self.cfg.get('snapshots',{});files=[];policy=[]
         if not opt.get('enabled',True):return []
+        scope=opt.get('scale_scope','global')
         for d in self.datasets:
             groups=[snapshot_rows(c,opt.get('times_s')) for c in d['cases']]
+            if not groups or not groups[0]:raise ValueError('No wavefield frames selected')
+            if len({len(rows) for rows in groups})!=1:raise ValueError('Snapshot lists differ')
             for comp in opt.get('components',['Vz']):
-                frames=[]
+                limit=opt.get('vmax_m_s')
+                if limit is None and scope=='global':
+                    # Scan/cache extrema, not all frames plus all coordinate arrays in RAM.
+                    limit=0.
+                    for rows in groups:
+                        for row in rows:
+                            data=read_vts(row['path'],comp,opt.get('stride_x',1),opt.get('stride_z',1),self.out/'cache')
+                            limit=max(limit,abs(float(data['full_min'])),abs(float(data['full_max'])))
+                            del data
                 for i in range(len(groups[0])):
-                    frame=[]
-                    for c,rows in zip(d['cases'],groups):
-                        if len(rows)!=len(groups[0]):raise ValueError('Snapshot lists differ')
-                        row=rows[i]
-                        frame.append((c,row,grid_data(c,comp,self.out,opt,row['path'])))
+                    frame=[(c,rows[i],grid_data(c,comp,self.out,opt,rows[i]['path'])) for c,rows in zip(d['cases'],groups)]
                     targets={float(row['target_time_s']) for _,row,_ in frame}
                     if len(targets)!=1:raise ValueError('Snapshot target times differ')
-                    frames.append(frame)
-                global_limit=max(max(abs(float(v[3]['full_min'])),abs(float(v[3]['full_max']))) for frame in frames for _,_,v in frame)
-                for frame in frames:
-                    target=float(frame[0][1]['target_time_s'])
-                    limit=global_limit if opt.get('scale_scope','global')=='global' else max(float(abs(v[2]).max()) for _,_,v in frame)
-                    norm=symlog(limit,opt.get('linthresh_fraction',.01));fig,axs=axes_grid(len(frame),2)
-                    for ax,(c,row,(x,z,a,_)) in zip(axs,frame):
-                        im=spatial(ax,x,z,a,c['case'].get('label',c['case']['id'])+f" t={float(row['actual_time_s']):.5f}s",opt.get('cmap','seismic'),norm=norm,options=opt)
-                        for ri,depth in enumerate(opt.get('reference_depths_m',[])):
-                            ax.axhline(depth,color=['#e31a1c','#ff8c00'][ri%2],lw=1.5,ls='--')
-                    wave_colorbar(fig,im,axs);files+=save(fig,self.out,f'{d["label"]}_{comp}_compare_t{target:.2f}_detail_symlog{tag}',self.cfg)
+                    target=next(iter(targets));frame_limit=limit if limit is not None else max(float(abs(v[2]).max()) for _,_,v in frame)
+                    frame_limit=max(float(frame_limit),np.finfo(float).tiny*100)
+                    fraction=opt.get('linthresh_m_s',frame_limit*opt.get('linthresh_fraction',.01))/max(frame_limit,np.finfo(float).tiny)
+                    norm=symlog(frame_limit,fraction);fig,axs=axes_grid(len(frame),2)
+                    for ax,(c,row,(x,z,a,_)) in zip(axs,frame):im=spatial(ax,x,z,a,c['case'].get('label',c['case']['id'])+f" t={float(row['actual_time_s']):.6f}s",opt.get('cmap','coolwarm'),norm=norm,options=opt)
+                    wave_colorbar(fig,im,axs,opt);files+=save(fig,self.out,f'{d["label"]}_{comp}_compare_t{target:.2f}_{opt.get("cmap","coolwarm")}{tag}',self.cfg)
                     if opt.get('individual',False):
                         for c,row,(x,z,a,_) in frame:
                             fig,ax=plt.subplots(figsize=(12,5),layout='constrained')
-                            im=spatial(ax,x,z,a,c['case'].get('label',c['case']['id'])+f" t={float(row['actual_time_s']):.5f}s",opt.get('cmap','seismic'),norm=norm,options=opt)
-                            wave_colorbar(fig,im,[ax])
-                            files+=save(fig,self.out,f'{d["label"]}_{c["case"]["id"]}_{comp}_t{target:.2f}_detail_symlog{tag}',self.cfg)
-                    policy.append(dict(dataset=d['label'],component=comp,target_time_s=target,vmax_m_s=limit,linthresh_m_s=limit*opt.get('linthresh_fraction',.01),scale_scope=opt.get('scale_scope','global')))
+                            im=spatial(ax,x,z,a,c['case'].get('label',c['case']['id'])+f" t={float(row['actual_time_s']):.6f}s",opt.get('cmap','coolwarm'),norm=norm,options=opt)
+                            wave_colorbar(fig,im,[ax],opt);files+=save(fig,self.out,f'{d["label"]}_{c["case"]["id"]}_{comp}_t{target:.2f}_{opt.get("cmap","coolwarm")}{tag}',self.cfg)
+                    policy.append(dict(dataset=d['label'],component=comp,target_time_s=target,actual_times_s=';'.join(row['actual_time_s'] for _,row,_ in frame),vmax_m_s=frame_limit,linthresh_m_s=norm.linthresh,scale_scope='fixed' if opt.get('vmax_m_s') is not None else scope,colormap=opt.get('cmap','coolwarm'),reference_depths_m=';'.join(map(str,opt.get('reference_depths_m',[])))))
+                    del frame
         write_rows(self.out/'data/wavefield_display_policy.csv',policy);return files
 
     def plot_metrics(self):
@@ -197,7 +220,7 @@ class FourCaseStudy:
                 data=np.atleast_2d(np.loadtxt(path,delimiter=',',skiprows=1));x,y=data[:,0],data[:,1];ylabel='地表高程 / m'
             else:
                 g=self.get(d,candidate,next(iter(candidate['components'])));x=g.x;y=datum-g.z if datum is not None else g.z;ylabel='地表高程 / m' if datum is not None else '地表基准深度 / m'
-            fig,ax=plt.subplots(figsize=(12,3.5),layout='constrained');ax.plot(x,y,color='#ed7d31',lw=2)
+            fig,ax=plt.subplots(figsize=(12,3.5),layout='constrained');ax.plot(x,y,color='#28566a',lw=1.15)
             if datum is not None:
                 ax.axhline(datum,color='#888888',lw=1,ls='--')
                 ax.plot(candidate['meta']['source_x_m'],datum-candidate['meta']['source_z_m'],'*',color='#c00000',ms=11)
@@ -218,15 +241,17 @@ class FourCaseStudy:
                 source_depth=m.get('source_depth_eta_m',opt.get('source_depth_m',30))
                 delay=d['config'].get('source_delay_s',1.5/m['frequency_hz'])
                 curves=[]
-                a=gain(g.values,g.dt,'agc',.3,.01);im=gather_image(ax,g,a,c['case'].get('label',c['case']['id']),self.cfg,3)
+                rec=self.cfg.get('records',{});rms=np.sqrt(np.mean(np.trapezoid(g.values[self.mask(g)]**2,g.t,axis=-1))/max(g.t[-1],g.dt))
+                a=gain(g.values,g.dt,'agc',rec.get('agc_window_s',.3),rec.get('agc_floor',.01),rec.get('agc_edge','truncated'),rec.get('agc_odd_window',False),rms)
+                im=gather_image(ax,g,a,c['case'].get('label',c['case']['id']),self.cfg,rec.get('agc_clip',3),mode='agc')
                 for ri,depth in enumerate(opt['depths_m']):
                     base=layered_reflection(profile['boundaries_m'],profile['vp_m_s'],source_depth,depth,g.offset,delay)
                     if m.get('terrain',False):
                         diff=np.hypot(g.offset,2*depth-m['source_z_m']-g.z)-np.hypot(g.offset,2*depth-source_depth)
                         base=base+diff/opt.get('geometry_reference_vp_m_s',3000)
-                    curves.append(base);ax.plot(g.x,base,color=['#e31a1c','#ff8c00'][ri%2],lw=1.6,ls='--',label=f'R{ri+1} {depth:g}m参考')
+                    curves.append(base);display_scale=.001 if self.cfg.get('records',{}).get('distance_unit','m')=='km' else 1.;ax.plot(g.x*display_scale,base,color=['#e31a1c','#ff8c00'][ri%2],lw=1.6,ls='--',label=f'R{ri+1} {depth:g}m参考')
                 ax.legend(fontsize=9)
-                if opt.get('xlim_m'):ax.set_xlim(*opt['xlim_m'])
+                if opt.get('xlim_m'):ax.set_xlim(*(np.array(opt['xlim_m'])*display_scale))
                 if opt.get('time_window_s'):ax.set_ylim(*opt['time_window_s'][::-1])
                 refs.append((c,g,curves))
                 write_rows(self.out/'data'/f'{d["label"]}_{c["case"]["id"]}_reflection_reference.csv',
@@ -250,8 +275,8 @@ class FourCaseStudy:
                 axs[1].set(xlabel='接收点 X / m',ylabel='原始记录相关系数',ylim=(-1.05,1.05));axs[1].legend()
                 j=int(np.argmin(abs(ga.offset-opt.get('example_offset_m',1000))))
                 for g,curves,color,label in [(ga,ca,'#c00000','平地'),(gb,cb,'#ed7d31','起伏')]:
-                    global_rms=float(np.sqrt(np.mean(g.values**2)))
-                    agc=gain(g.values[[j]],g.dt,'agc',.3,.01,global_rms=global_rms)
+                    global_rms=float(np.sqrt(np.mean(np.trapezoid(g.values[self.mask(g)]**2,g.t,axis=-1))/max(g.t[-1],g.dt)))
+                    agc=gain(g.values[[j]],g.dt,'agc',rec.get('agc_window_s',.3),rec.get('agc_floor',.01),rec.get('agc_edge','truncated'),rec.get('agc_odd_window',False),global_rms)
                     axs[2].plot(u*1000,np.interp(curves[0][j]+u,g.t,agc[0]),color=color,label=label)
                 axs[2].set(xlabel='相对R1参考时刻 / ms',ylabel='Vz / 局部RMS',title=f'AGC对齐示例，X={ga.x[j]:g}m');axs[2].legend()
                 files+=save(fig,self.out,d['label']+'_reflection_alignment',self.cfg)

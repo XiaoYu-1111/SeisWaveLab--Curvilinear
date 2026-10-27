@@ -39,6 +39,8 @@ float glassStrength3D();
 void setGlassStrength3D(float);
 bool glassMotion3D();
 void setGlassMotion3D(bool);
+int glassQuality3D(); // 0 opaque, 1 economical, 2 full
+void setGlassQuality3D(int);
 void setLanguage3D(int); // 0 English, 1 Simplified Chinese; labels retain their original ImGui IDs.
 int language3D();
 int themeIndex3D();

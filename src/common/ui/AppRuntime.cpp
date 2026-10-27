@@ -64,6 +64,7 @@ void saveAppearancePreferences(const std::filesystem::path& destination) {
     values["glass_finish"] = std::to_string(Seis3D::Curvilinear::Ui::glassFinish3D());
     values["glass_strength"] = std::to_string(Seis3D::Curvilinear::Ui::glassStrength3D());
     values["glass_motion"] = std::to_string(Seis3D::Curvilinear::Ui::glassMotion3D()?1:0);
+    values["glass_quality"] = std::to_string(Seis3D::Curvilinear::Ui::glassQuality3D());
     std::ofstream out(file);
     for (const auto &[name, setting] : values)
         out << name << ' ' << setting << '\n';
@@ -91,6 +92,7 @@ bool loadAppearancePreferences(const std::filesystem::path& source) {
         if(key=="glass_finish"&&(value==0||value==1))setGlassFinish3D(static_cast<int>(value));
         if(key=="glass_strength"&&value>=0&&value<=1)setGlassStrength3D(static_cast<float>(value));
         if(key=="glass_motion"&&(value==0||value==1))setGlassMotion3D(value!=0);
+        if(key=="glass_quality"&&value==std::floor(value)&&value>=0&&value<=2)setGlassQuality3D(static_cast<int>(value));
     }
     return true;
 }

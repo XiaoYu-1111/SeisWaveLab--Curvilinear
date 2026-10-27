@@ -8,7 +8,7 @@
 namespace Seis3D::Curvilinear::Ui {
 namespace {
 int selectedLanguage = 1, selectedTheme = 1;
-int glassFinish=1;float glassStrength=.8f;bool glassMotion=true;
+int glassFinish=1;float glassStrength=.8f;bool glassMotion=true;int glassQuality=1;
 // Process catalogue v2 plus MATLAB-inspired and petroleum red/yellow/orange themes.
 const Theme3D themes[]{
     {"Light Sandpaper",{.945f,.925f,.880f,1},{.995f,.985f,.960f,1},{.920f,.905f,.865f,1},{.16f,.20f,.19f,1},{.32f,.37f,.33f,1},{.10f,.40f,.32f,1},{.68f,.70f,.63f,1},true,true},
@@ -243,6 +243,8 @@ float glassStrength3D(){return glassStrength;}
 void setGlassStrength3D(float strength){if(std::isfinite(strength))glassStrength=std::clamp(strength,0.f,1.f);}
 bool glassMotion3D(){return glassMotion;}
 void setGlassMotion3D(bool enabled){glassMotion=enabled;}
+int glassQuality3D(){return glassQuality;}
+void setGlassQuality3D(int value){if(value>=0&&value<=2)glassQuality=value;}
 ThemeTone3D themeTone3D(int i){i=std::clamp(i,0,themeCount3D-1);return i<4?ThemeTone3D::Warm:i<8?ThemeTone3D::Neutral:i<10?ThemeTone3D::Cool:ThemeTone3D::Special;}
 const char* themeToneName3D(ThemeTone3D tone){const int i=static_cast<int>(tone);static const char* en[]={"Warm (4)","Neutral (4)","Cool (2)","Application styles (2)"};static const char* zh[]={"暖色调（4）","中性色调（4）","冷色调（2）","应用风格（2）"};return selectedLanguage?zh[i]:en[i];}
 int legacyThemeIndex3D(int i){return i>=0&&i<15?legacyThemes[i]:-1;}
@@ -283,6 +285,8 @@ bool themeCombo3D(const char* id,int& theme,float width) {
 }
 void glassAppearanceControls3D() {
     ImGui::SeparatorText(language3D()?"玻璃材质":"Glass material");
+    int quality=glassQuality3D();ImGui::SetNextItemWidth(240);
+    if(ImGui::Combo(language3D()?"材质质量":"Material quality",&quality,language3D()?"清晰实底\0节能磨砂\0完整磨砂\0":"Opaque\0Economical glass\0Full glass\0"))setGlassQuality3D(quality);
     int finish=glassFinish3D();ImGui::SetNextItemWidth(240);
     if(ImGui::Combo(language3D()?"表面":"Finish",&finish,language3D()?"液态 · 通透\0磨砂 · 柔雾\0":"Liquid\0Frosted\0"))setGlassFinish3D(finish);
     float strength=glassStrength3D();ImGui::SetNextItemWidth(240);

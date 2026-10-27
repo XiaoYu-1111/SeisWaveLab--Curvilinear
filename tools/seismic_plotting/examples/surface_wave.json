@@ -1,14 +1,10 @@
 {
+  "style_profile": "surface_wave",
   "output_dir": "out/replots/surface_wave",
-  "font_family": "Microsoft YaHei",
-  "font_size": 12,
-  "dpi": 180,
   "formats": [
     "png",
     "pdf"
   ],
-  "record_cmap": "gray",
-  "interpolation": "bilinear",
   "datasets": [
     {
       "label": "MASW20Hz",
@@ -53,16 +49,10 @@
       "raw",
       "agc"
     ],
-    "clip_quantile": 0.995,
-    "agc_window_s": 0.3,
-    "agc_floor": 0.03,
-    "agc_clip": 3,
-    "agc_edge": "reflect",
-    "agc_odd_window": true
+    "clip_quantile": 0.995
   },
   "models": {
     "field": "Vs",
-    "cmap": "viridis",
     "limits_m_s": [
       250,
       1250
@@ -92,9 +82,7 @@
     ],
     "stride_x": 2,
     "stride_z": 2,
-    "cmap": "RdBu_r",
     "linthresh_fraction": 0.001,
-    "scale_scope": "per_time",
     "relative_x": true,
     "crop_m": [
       -20,

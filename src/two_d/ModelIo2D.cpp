@@ -22,7 +22,9 @@ Arrays metadata(const Simulation &s, const ComputeSettings3D &compute) {
     const auto &p = s.parameters();
     Arrays a;
     const auto add = [&](const char *name, double value) { a[name] = {value}; };
-    add("SeisWaveModel2DVersion", 1);
+    add("SeisWaveModel2DVersion", 2);
+    a["GSLSSettings"]={double(p.attenuation.enabled),double(p.attenuation.mechanisms),p.attenuation.minFrequency,p.attenuation.maxFrequency,p.attenuation.referenceFrequency,p.attenuation.qp,p.attenuation.qs};
+    auto& layerQ=a["LayerQpQs"];for(const auto& l:p.layers)layerQ.insert(layerQ.end(),{l.qp,l.qs});
 #define PARAM(member) add("Parameter_" #member, p.member)
     PARAM(nx); PARAM(nz); PARAM(spacing); PARAM(vp); PARAM(vs); PARAM(density);
     PARAM(relief); PARAM(wavelength); PARAM(flattenDepth); PARAM(frequency); PARAM(duration);
@@ -169,7 +171,7 @@ bool readModelVts(const std::filesystem::path &path, ModelDocument &document, st
             require(it != arrays.end() && it->second.size() == 1, std::string("Missing model parameter: ") + key);
             return it->second[0];
         };
-        require(scalar("SeisWaveModel2DVersion") == 1, "Unsupported model version; legacy snapshots are not restartable models.");
+        const int version=integer(scalar("SeisWaveModel2DVersion"),1,2);
         ModelDocument next;
         auto &p = next.parameters;
 #define REAL(member) p.member = scalar("Parameter_" #member)
@@ -194,6 +196,9 @@ bool readModelVts(const std::filesystem::path &path, ModelDocument &document, st
         require(layers.size() % 4 == 0 && layers.size() <= 64, "Invalid model layer table.");
         p.layers.clear();
         for (std::size_t i = 0; i < layers.size(); i += 4) p.layers.push_back({layers[i], layers[i+1], layers[i+2], layers[i+3]});
+        if(version==2){const auto& q=arrays.at("GSLSSettings");require(q.size()==7,"Invalid GSLS settings.");p.attenuation={integer(q[0],0,1)!=0,integer(q[1],1,3),q[2],q[3],q[4],q[5],q[6]};
+            require(SeisWave::Rheology::validateSettings(p.attenuation,error),error.c_str());const auto& layerQ=arrays.at("LayerQpQs");require(layerQ.size()==2*p.layers.size(),"Layer Q table differs from material table.");
+            for(std::size_t i=0;i<p.layers.size();++i){p.layers[i].qp=layerQ[2*i];p.layers[i].qs=layerQ[2*i+1];}}
         const auto &samples = arrays.at("SurfaceSamplesXElevation");
         require(samples.size() % 2 == 0, "Invalid model surface samples.");
         p.surfaceSamples.clear();

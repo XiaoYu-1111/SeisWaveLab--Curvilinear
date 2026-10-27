@@ -26,6 +26,7 @@ for setting in settings['configurations']:
 
 for path in ROOT.rglob('*'):
     if '.git' in path.relative_to(ROOT).parts:continue
+    if path==ROOT/'resources/examples/terrain3d/surface_grid_400x288_h25m.vts':continue  # Curated original default DEM, not a generated solver export.
     if path.is_file() and (path.suffix.lower() in {'.exe','.dll','.lib','.pdb','.obj','.ppm','.vts','.sgy','.segy','.zip','.pyc'} or path.name=='CMakeCache.txt'):
         errors.append(f'Generated file in repository: {path.relative_to(ROOT)}')
 

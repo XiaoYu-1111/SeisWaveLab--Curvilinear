@@ -1,6 +1,6 @@
 # 地震波场实验重绘 Notebook
 
-入口是三个Notebook。绘图算法放在同目录`seisplot/`的Python模块中，Notebook逐步调用，不再复制15Hz/30Hz两套脚本。
+入口是三个Notebook和`run.py`。绘图算法放在同目录`seisplot/`中，15Hz/30Hz共用代码。所有当前配色及显示参数集中在[统一样式配置](styles/current_publication.json)，详细约定见[参数与色标说明](参数与色标说明.md)。
 
 | Notebook | 输入 | 输出 |
 | --- | --- | --- |
@@ -45,7 +45,17 @@ python -B tools/seismic_plotting/run.py --kind four --config tools/seismic_plott
 python -B tools/seismic_plotting/run.py --kind masw --config tools/seismic_plotting/examples/surface_wave.json --steps inspect,dispersion,windows,picks
 ```
 
-JSON示例是小型版本化配置，原始SEG-Y、VTS、缓存和旧PPT没有复制进Git。克隆仓库后需自行放置数据，或改为实际输入路径。原来的`out/tools`、`out/surface_wave_masw`一次性脚本无需被调用，也没有被删除。
+查看统一样式、预览实际参数或只重绘一个主频：
+
+```powershell
+python -B tools/seismic_plotting/run.py --list-styles
+python -B tools/seismic_plotting/run.py --kind four --config tools/seismic_plotting/examples/four_frequency.json --frequency 15 --check-config
+python -B tools/seismic_plotting/run.py --kind four --config tools/seismic_plotting/examples/four_frequency.json --frequency 30 --steps records,metrics
+```
+
+`--frequency`输出到`out/replots/four_frequency/15Hz`或`30Hz`，避免单频执行互相覆盖清单；不筛选时两种主频写入同一批次。`--output-dir`也可覆盖为外层out内的其他子目录。
+
+JSON示例是小型版本化配置，原始SEG-Y、VTS、缓存和旧PPT没有复制进Git。克隆仓库后需自行放置数据，或改为实际输入路径。`out/tools`中的10个旧绘图/补丁/后处理入口已改为转发统一工具，默认写入`out/replots`，不覆盖正式PPT；旧脚本原文和哈希归档在`out/maintenance/绘图代码整理_20261027`。历史Analyze脚本仅供数值溯源，新的常规绘图不调用。面波旧脚本保留实验来源，以本目录Notebook为常规维护入口。
 
 ## 输入目录或独立文件
 
@@ -87,7 +97,7 @@ VTS目前支持本程序的**二维X-Z ASCII StructuredGrid**，读取`Vp`、`Vs
 
 ## 常用显示参数
 
-配置在`examples/*.json`，也可以直接在Notebook内覆盖：
+公共参数在`styles/current_publication.json`，数据路径与实验专有参数在`examples/*.json`。优先级：公共样式 → 实验样式 → JSON/Notebook显式覆盖。每次输出保存解析后的配置及样式SHA-256。也可以直接在Notebook内覆盖：
 
 ```python
 CONFIG["formats"] = ["png", "pdf"]
@@ -99,14 +109,16 @@ CONFIG["snapshots"]["depth_coordinate"] = "eta"
 CONFIG["snapshots"]["equal_aspect"] = True
 ```
 
-- 全部空间量都使用m，空间1:1无需额外乘0.001。地震记录使用X/偏移距—时间坐标，不强制空间1:1。
+- 输入、裁切和空间计算统一使用m。道集可通过`records.distance_unit`选择m/km，仅转换坐标显示。`records.velocity_unit`可选m/s或um/s；仅原始记录转换速度单位，RMS/AGC仍为无量纲。空间1:1通过`equal_aspect`选择，默认15/30Hz宽幅比较不强制1:1。
 - `depth_coordinate="physical"`读取真实保存的基准深度Z；`"eta"`为原生网格行号乘`spacing_m`的计算坐标；`"surface_relative"`为物理Z减当地地表Z。后二者在曲网格中不能混用。
 - `relative_x=True`时裁切X以震源为零，否则为绝对X。`crop_m=[xmin,xmax,zmin,zmax]`只裁图，不修改模拟域。
-- 速度模型默认viridis，波场使用seismic或RdBu_r，记录使用gray和双线性显示插值。规则间距记录用imshow，不规则接收X使用pcolormesh以保留位置。
-- 波场只保留detail_symlog。`scale_scope="global"`在该主频数据集全部算例及所选时刻共用尺度；`"per_time"`为每个时刻的算例共用尺度。后者不能通过跨时刻颜色判断衰减。默认15/30Hz各自全局定标，不能直接比较两种主频PNG的色深；比较绝对响应应使用原始记录统计。
+- 模型默认turbo，波场coolwarm，记录gray、双线性数据阶段显示插值。负黑、零灰、正白。规则间距记录用imshow，不规则接收X使用pcolormesh保留真实位置，不插造缺失道。原始DEM继续使用jet；频散相干谱viridis、Qp试验模型plasma，各自具有不同物理意义。
+- 波场采用对称对数。15/30Hz配置固定所有模型、主频和9时刻共用±20µm/s，线性核±0.2µm/s；不同PNG可在这一共同显示尺度下观察响应，定量仍读取原始样本。`scale_scope="fixed"`需正的`vmax_m_s`；`"global"`无固定上限时扫描同一数据集的所有所选帧；`"per_time"`无固定上限时逐时刻自动定标，不可由颜色直接判断跨时刻衰减。显式`vmax_m_s`始终优先。全局扫描保留原生极值，渲染逐时刻读取，不把全部波场与坐标数组一起常驻内存。
 - `stride_x/z`只对显示数据抽稀，不改变物理坐标和原始文件。裁切较细节的图应减小步长。
 - `snapshots.individual=True`时，除模型对比图外，另存每个算例每个时刻的单独快照，仍使用该对比图的同一物理色阶。
-- AGC可设置窗口、RMS分母下限、边界处理与奇数窗口。四组示例沿用截短边缘归一化及1%整体RMS下限；面波示例沿用reflect边缘及最大局部RMS的3%下限。增益只用于显示。
+- 四组实验AGC窗口300ms，原dt=0.5ms时为600样点；边缘按实际可用样点归一化，分母下限为同一模型/分量整体RMS的1%，显示±3。整体RMS以分析道上速度平方的时间积分除时长计算。面波保留reflect边缘、奇数窗口、最大局部RMS的3%下限，不强套四组设置。增益只用于显示。
+- 四组实验默认输出每分量四模型矩阵及原始Vz/Vx并列图（左Vz、右Vx）；无低速层对±10µm/s，有低速层对±125µm/s，15/30Hz相同。单分量四模型原始矩阵共用±125µm/s。波场只输出Vz，默认全部9个已导出时刻，0–10km全宽。
+- `reference_depths_m=[1000,2000]`仅在物理基准深度坐标绘制细灰虚线；η/相对地表深度图不标这两个物理界面。右侧标注带浅底，避免遮挡波场。
 
 ## 反射与频散结果的解释
 
@@ -137,6 +149,8 @@ frequency_hz,observed_m_s,initial_m_s,fitted_m_s
 
 重构来源：`Analyze-Jingbian-Records[-30Hz].py`、`Export-Jingbian-Gain[-30Hz].py`、`Export-Jingbian-Vz[-30Hz].py`、`Revise-Jingbian-Figures[-30Hz].py`、面波`analyze_results.py`和`plot_inversion.py`。保留物理单位、原始幅度定量、AGC显示分离、真实网格、裁切和模态限制；移除固定工作盘、固定样本数、缓存目录依赖及字符串补丁。
 
+PPT专用全原生网格投影/同步脚本保留在外层out的复现工程，用于重建既有报告图件；现已读取同一统一样式。常规维护优先本目录。Q对照分析工具亦复用这份配色表，但保留其校准窗口、幅度标定和AGC算法。
+
 本工具包不自动构建PPT。重绘PNG/PDF可替换到后续报告。统计方法和显示配置会随每次输出保存，适合复核。原始旧报告的全部硬编码数值或解释没有复制为新算例的结论。
 
 运行读入及数值检查（夹具与日志生成到外层out）：
@@ -144,6 +158,8 @@ frequency_hz,observed_m_s,initial_m_s,fitted_m_s
 ```powershell
 python -B -m unittest discover -s tools/seismic_plotting/tests -v
 python -B tools/seismic_plotting/check_notebooks.py
+# 本机已有正式15/30Hz图件时核对清单、18张波场哈希、界面线与显示参数：
+python -B tools/seismic_plotting/verify_publication.py
 # 在默认实验数据齐全时，执行三个Notebook的实际数据检查：
 python -B tools/seismic_plotting/check_notebooks.py --execute
 ```

@@ -4,6 +4,8 @@
 #include "imgui_internal.h"
 #include <GLFW/glfw3.h>
 #include <unordered_set>
+#include <unordered_map>
+#include <array>
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -11,7 +13,15 @@ namespace SeisWave::Ui {
 using namespace Seis3D::Curvilinear::Ui;
 namespace {
 GLFWwindow* owner{};std::unordered_set<ImGuiID> glassWindows;
-GLuint program{},blurProgram{},texture{},blurTextures[2]{},framebuffer{},vao{};int textureWidth{},textureHeight{},passes{};bool attempted{};std::string error;
+GLuint program{},blurProgram{},framebuffer{},vao{};int passes{},refreshes{};bool sceneActive{};
+struct Cache {GLuint texture{},blur[2]{};int width{},height{},quality{-1},used{};double updated{-1};bool valid{};std::array<int,4> region{};ImVec4 tint{};float strength{},roughness{};};
+std::unordered_map<ImGuiID,Cache> caches;
+void release(Cache& c){if(c.texture)glDeleteTextures(1,&c.texture);glDeleteTextures(2,c.blur);}
+Cache& cacheFor(ImGuiID id){
+    if(!caches.contains(id)&&caches.size()>=8){auto old=std::min_element(caches.begin(),caches.end(),[](const auto& a,const auto& b){return a.second.used<b.second.used;});release(old->second);caches.erase(old);}
+    auto& c=caches[id];if(!c.texture){glGenTextures(1,&c.texture);glGenTextures(2,c.blur);}c.used=ImGui::GetFrameCount();return c;
+}
+bool attempted{};std::string error;
 const char* vertexSource=R"(#version 330 core
 uniform vec4 rect; uniform vec2 viewportSize;
 void main(){vec2 uv[6]=vec2[6](vec2(0,0),vec2(1,0),vec2(1,1),vec2(0,0),vec2(1,1),vec2(0,1));
@@ -60,16 +70,17 @@ GLuint link(const char* vertex,const char* fragment) {
 bool initialize() {
     if(attempted)return program&&blurProgram;attempted=true;
     program=link(vertexSource,fragmentSource);blurProgram=link(blurVertex,blurFragment);if(!program||!blurProgram)return false;
-    glGenTextures(1,&texture);glGenTextures(2,blurTextures);glGenFramebuffers(1,&framebuffer);glGenVertexArrays(1,&vao);return true;
+    glGenFramebuffers(1,&framebuffer);glGenVertexArrays(1,&vao);return true;
 }
 void allocateTexture(GLuint handle,int width,int height) {
     glBindTexture(GL_TEXTURE_2D,handle);glTexImage2D(GL_TEXTURE_2D,0,GL_RGB8,width,height,0,GL_RGB,GL_UNSIGNED_BYTE,nullptr);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
 }
-struct Payload {ImVec2 pos,size,displayPos,displaySize;ImVec4 tint;float strength,roughness,luma;bool light;};
+struct Payload {ImVec2 pos,size,displayPos,displaySize;ImVec4 tint;float strength,roughness,luma;bool light;ImGuiID id;};
 void drawBackdrop(const ImDrawList*,const ImDrawCmd* cmd) {
     if(!program||glfwGetCurrentContext()!=owner)return;
-    const auto& p=*static_cast<const Payload*>(cmd->UserCallbackData);GLint viewport[4]{};glGetIntegerv(GL_VIEWPORT,viewport);
+    const auto& p=*static_cast<const Payload*>(cmd->UserCallbackData);
+    auto& cache=cacheFor(p.id);const auto texture=cache.texture;const auto& blurTextures=cache.blur;GLint viewport[4]{};glGetIntegerv(GL_VIEWPORT,viewport);
     if(viewport[2]<1||viewport[3]<1||p.displaySize.x<=0||p.displaySize.y<=0)return;
     const float sx=viewport[2]/p.displaySize.x,sy=viewport[3]/p.displaySize.y;
     const float x=(p.pos.x-p.displayPos.x)*sx,y=viewport[3]-(p.pos.y-p.displayPos.y+p.size.y)*sy,w=p.size.x*sx,h=p.size.y*sy;
@@ -82,14 +93,19 @@ void drawBackdrop(const ImDrawList*,const ImDrawCmd* cmd) {
     glGetIntegerv(GL_TEXTURE_BINDING_2D,&oldTexture);glGetIntegerv(GL_SAMPLER_BINDING,&oldSampler);glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING,&oldRead);glGetIntegerv(GL_READ_BUFFER,&readBuffer);glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING,&drawBuffer);glGetIntegerv(GL_SCISSOR_BOX,scissor);
     const bool hadScissor=glIsEnabled(GL_SCISSOR_TEST)!=0,hadBlend=glIsEnabled(GL_BLEND)!=0;
     glBindFramebuffer(GL_READ_FRAMEBUFFER,drawBuffer);glReadBuffer(drawBuffer?GL_COLOR_ATTACHMENT0:GL_BACK);
-    glBindSampler(0,0);const int bw=std::max(1,(tw+1)/2),bh=std::max(1,(th+1)/2);
-    if(textureWidth!=tw||textureHeight!=th){allocateTexture(texture,tw,th);for(auto handle:blurTextures)allocateTexture(handle,bw,bh);textureWidth=tw;textureHeight=th;}
-    glBindTexture(GL_TEXTURE_2D,texture);
-    glCopyTexSubImage2D(GL_TEXTURE_2D,0,0,0,left,bottom,tw,th);
-    bool copied=glGetError()==GL_NO_ERROR;if(!copied)error="OpenGL backdrop copy failed; using opaque popup fallback.";
+    const int quality=glassQuality3D(),divisor=quality==1?4:2;
+    glBindSampler(0,0);const int bw=std::max(1,(tw+divisor-1)/divisor),bh=std::max(1,(th+divisor-1)/divisor);
+    const bool resized=cache.width!=tw||cache.height!=th||cache.quality!=quality;
+    if(resized){allocateTexture(texture,tw,th);for(auto handle:blurTextures)allocateTexture(handle,bw,bh);cache.width=tw;cache.height=th;cache.valid=false;}
+    const std::array<int,4> region{left,bottom,tw,th};const auto& io=ImGui::GetIO();
+    const bool moving=sceneActive||io.MouseDown[0]||io.MouseDown[1]||io.MouseDown[2]||io.MouseWheel!=0;
+    const double period=1.0/(moving?(quality==1?15:30):5);
+    const bool update=!cache.valid||resized||cache.region!=region||cache.strength!=p.strength||cache.roughness!=p.roughness||cache.tint.x!=p.tint.x||cache.tint.y!=p.tint.y||cache.tint.z!=p.tint.z||ImGui::GetTime()-cache.updated>=period;
+    bool copied=cache.valid;
+    if(update){glBindTexture(GL_TEXTURE_2D,texture);glCopyTexSubImage2D(GL_TEXTURE_2D,0,0,0,left,bottom,tw,th);copied=glGetError()==GL_NO_ERROR;if(!copied)error="OpenGL backdrop copy failed; using opaque popup fallback.";}
     // Two separable Gaussian passes at half resolution, rather than sparse 2-D
     // taps that leave recognizable copies of background text in frosted menus.
-    if(copied) {
+    if(update&&copied) {
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER,framebuffer);glViewport(0,0,bw,bh);glDisable(GL_SCISSOR_TEST);glDisable(GL_BLEND);glUseProgram(blurProgram);glBindVertexArray(vao);
         glUniform1i(glGetUniformLocation(blurProgram,"source"),0);
         const float sigma=(p.roughness>.5f?13.f:5.f)*(.35f+.65f*p.strength)*std::max(sx,sy);
@@ -100,6 +116,7 @@ void drawBackdrop(const ImDrawList*,const ImDrawCmd* cmd) {
         }
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER,drawBuffer);glViewport(viewport[0],viewport[1],viewport[2],viewport[3]);if(hadBlend)glEnable(GL_BLEND);
     }
+    if(update){cache.valid=copied;cache.updated=ImGui::GetTime();cache.region=region;cache.tint=p.tint;cache.strength=p.strength;cache.roughness=p.roughness;cache.quality=quality;++refreshes;}
     glBindTexture(GL_TEXTURE_2D,copied?blurTextures[1]:texture);
     glUseProgram(program);glBindVertexArray(vao);
     const auto location=[](const char* name){return glGetUniformLocation(program,name);};
@@ -115,10 +132,10 @@ void drawBackdrop(const ImDrawList*,const ImDrawCmd* cmd) {
 }
 void glassPrepareBackdrop() {
     if(!owner)owner=glfwGetCurrentContext();glassWindows.clear();
-    if(glassTheme3D()){const auto& p=palette3D();auto color=p.panel;color.w=initialize()&&error.empty()?.08f:.985f;ImGui::GetStyle().Colors[ImGuiCol_PopupBg]=color;}
+    if(glassTheme3D()){const auto& p=palette3D();auto color=p.panel;color.w=glassQuality3D()>0&&initialize()&&error.empty()?.08f:.985f;ImGui::GetStyle().Colors[ImGuiCol_PopupBg]=color;}
 }
 void glassPreparePopups() {
-    if(!glassTheme3D()||!program||!error.empty())return;
+    if(!glassTheme3D()||glassQuality3D()==0||!program||!error.empty())return;
     auto* context=ImGui::GetCurrentContext();const auto& p=palette3D();
     const auto linear=[](float a){return a<=.04045f?a/12.92f:std::pow((a+.055f)/1.055f,2.4f);};const float ink=.2126f*linear(p.muted.x)+.7152f*linear(p.muted.y)+.0722f*linear(p.muted.z);
     for(auto* window:context->Windows) {
@@ -135,7 +152,7 @@ void glassPreparePopups() {
             std::rotate(d->CmdBuffer.begin(),d->CmdBuffer.begin()+material,d->CmdBuffer.begin()+material+1);
             continue;
         }
-        Payload payload{window->Pos,window->Size,v->Pos,v->Size,p.panel,glassStrength3D(),glassFinish3D()?1.f:0.f,p.light?4.6f*(ink+.05f)-.05f:(ink+.05f)/4.6f-.05f,p.light};
+        Payload payload{window->Pos,window->Size,v->Pos,v->Size,p.panel,glassStrength3D(),glassFinish3D()?1.f:0.f,p.light?4.6f*(ink+.05f)-.05f:(ink+.05f)/4.6f-.05f,p.light,window->ID};
         d->AddCallback(drawBackdrop,&payload,sizeof(payload));const int start=d->CmdBuffer.Size-2;
         d->AddCallback(ImDrawCallback_ResetRenderState,nullptr);
         // Paint sampled material before this popup's own text/widgets. Existing
@@ -153,9 +170,11 @@ void installGlassPresentation() {
     ImGuiContextHook stop;stop.Type=ImGuiContextHookType_Shutdown;stop.Callback=[](ImGuiContext*,ImGuiContextHook*){destroyGlassBackdrop();};ImGui::AddContextHook(ImGui::GetCurrentContext(),&stop);
 }
 int glassBackdropPasses(){return passes;}
+int glassBackdropRefreshes(){return refreshes;}
+void setGlassSceneActive(bool active){sceneActive=active;}
 const std::string& glassBackdropError(){return error;}
 void destroyGlassBackdrop() {
-    if(program)glDeleteProgram(program);if(blurProgram)glDeleteProgram(blurProgram);if(texture)glDeleteTextures(1,&texture);glDeleteTextures(2,blurTextures);if(framebuffer)glDeleteFramebuffers(1,&framebuffer);if(vao)glDeleteVertexArrays(1,&vao);
-    owner=nullptr;glassWindows.clear();program=blurProgram=texture=framebuffer=vao=0;blurTextures[0]=blurTextures[1]=0;textureWidth=textureHeight=passes=0;attempted=false;error.clear();
+    if(program)glDeleteProgram(program);if(blurProgram)glDeleteProgram(blurProgram);for(auto& item:caches)release(item.second);caches.clear();if(framebuffer)glDeleteFramebuffers(1,&framebuffer);if(vao)glDeleteVertexArrays(1,&vao);
+    owner=nullptr;glassWindows.clear();program=blurProgram=framebuffer=vao=0;passes=refreshes=0;sceneActive=false;attempted=false;error.clear();
 }
 }

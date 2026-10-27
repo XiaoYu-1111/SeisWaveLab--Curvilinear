@@ -18,12 +18,18 @@ public:
     void topViewCamera();
     [[nodiscard]] std::array<std::array<float,2>,3> orientationAxes() const;
     void fitCamera();
+    void invalidate(){cached_=false;}
+    [[nodiscard]] std::array<std::uint64_t,2> cacheStatistics()const{return {builds_,hits_};}
     [[nodiscard]] std::array<float,5> cameraState() const {return {yaw_,pitch_,distance_,panX_,panY_};}
     [[nodiscard]] unsigned texture3D() const { return texture_; }
 private:
     unsigned program_{},vao_{},vbo_{},framebuffer_{},texture_{},msaaFramebuffer_{},colorBuffer_{},depthBuffer_{};
     int width_{},height_{},samples_{1};
     bool fitTopView_{};
+    bool cached_{};const void* geometry_{};
+    VisualSettings3D cachedVisuals_;
+    std::array<float,5> cachedCamera_{};std::array<int,3> cachedSlices_{};
+    std::uint64_t waveRevision_{},materialRevision_{},builds_{},hits_{};
     float yaw_{0.7f},pitch_{0.5f},distance_{2.0f},panX_{},panY_{};
 };
 }

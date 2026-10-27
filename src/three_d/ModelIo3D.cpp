@@ -15,7 +15,7 @@ Arrays metadata(const ISimulationBackend3D &s, const ComputeSettings3D &compute)
     const auto &p = s.parameters();
     Arrays a;
     const auto add = [&](const char *name, double value) { a[name] = {value}; };
-    add("SeisWaveModel3DVersion", 1);
+    add("SeisWaveModel3DVersion", p.surfaceGrid.empty()?1:2);
     add("NumericalSchemeVersion", 1);
 #define PARAM(member) add("Parameter_" #member, p.member)
     PARAM(nx);
@@ -65,6 +65,11 @@ Arrays metadata(const ISimulationBackend3D &s, const ComputeSettings3D &compute)
     add("EffectiveTotalSteps", s.totalSteps());
     add("EffectiveFlattenDepthM", s.grid().terrainTransitionDepth);
     add("CoordinatesZPositiveDown", 1);
+    if(!p.surfaceGrid.empty()) {
+        const auto& dem=p.surfaceGrid;
+        a["SurfaceGridGeometry"]={static_cast<double>(dem.nx),static_cast<double>(dem.ny),dem.spacing,dem.originX,dem.originY,dem.datum};
+        a["SurfaceGridElevations"]=dem.elevations;
+    }
     return a;
 }
 const char *pointNames[]{"Vp", "Vs", "Density", "LayerId", "Jacobian"};
@@ -197,8 +202,9 @@ bool readModelVts3D(const std::filesystem::path &path, ModelDocument3D &document
                 require(end == text.size(), "Invalid metadata array size.");
                 return integer(v, 0, high);
             };
-            const int components = size("NumberOfComponents", 4), tuples = size("NumberOfTuples", 65536);
-            require(components > 0 && static_cast<std::size_t>(components) * tuples <= 65536,
+            const int limit=name=="SurfaceGridElevations"?static_cast<int>(maxSurfaceSamples3D):65536;
+            const int components = size("NumberOfComponents", 4), tuples = size("NumberOfTuples", limit);
+            require(components > 0 && static_cast<std::size_t>(components) * tuples <= static_cast<std::size_t>(limit),
                     "Oversized model metadata.");
             arrays[name] = readArray(in, a, name == "ModelChecksum" ? nullptr : &hash,
                                      static_cast<std::size_t>(components) * tuples, true);
@@ -209,7 +215,8 @@ bool readModelVts3D(const std::filesystem::path &path, ModelDocument3D &document
                     std::string("Missing model parameter: ") + key);
             return it->second[0];
         };
-        require(scalar("SeisWaveModel3DVersion") == 1 && scalar("NumericalSchemeVersion") == 1,
+        const int version=integer(scalar("SeisWaveModel3DVersion"),1,2);
+        require(scalar("NumericalSchemeVersion") == 1,
                 "Unsupported 3D model schema or numerical scheme.");
         ModelDocument3D next;
         auto &p = next.parameters;
@@ -263,13 +270,13 @@ bool readModelVts3D(const std::filesystem::path &path, ModelDocument3D &document
         const auto &r = arrays.at("ReceiverArray");
         require(r.size() == 8, "Invalid receiver array.");
         p.receiverArray = {static_cast<ReceiverArrayKind3D>(integer(r[0], 0, 3)),
-                           integer(r[1], -1, 299),
-                           integer(r[2], -1, 299),
-                           integer(r[3], 0, 299),
+                           integer(r[1], -1, p.nx-1),
+                           integer(r[2], -1, p.ny-1),
+                           integer(r[3], 0, p.nz-1),
                            integer(r[4], 1, 1024),
                            integer(r[5], 1, 1024),
-                           integer(r[6], 1, 300),
-                           integer(r[7], 1, 300)};
+                           integer(r[6], 1, maxPhysicalNodesPerAxis3D),
+                           integer(r[7], 1, maxPhysicalNodesPerAxis3D)};
         const auto &b = arrays.at("AbsorbingBoundary");
         require(b.size() == 5, "Invalid absorbing settings.");
         p.absorbingBoundary = {integer(b[0], 0, 1) != 0,
@@ -281,6 +288,15 @@ bool readModelVts3D(const std::filesystem::path &path, ModelDocument3D &document
         next.referenceDt = scalar("ReferenceDtSeconds");
         require(next.referenceDt > 0 && scalar("CoordinatesZPositiveDown") == 1,
                 "Invalid model conventions.");
+        if(version==2) {
+            const auto& geometry=arrays.at("SurfaceGridGeometry");
+            require(geometry.size()==6,"Invalid embedded DEM geometry.");
+            auto& dem=p.surfaceGrid;
+            dem.nx=integer(geometry[0],2,maxSurfaceAxis3D);dem.ny=integer(geometry[1],2,maxSurfaceAxis3D);
+            dem.spacing=geometry[2];dem.originX=geometry[3];dem.originY=geometry[4];dem.datum=geometry[5];
+            dem.elevations=std::move(arrays.at("SurfaceGridElevations"));
+            require(dem.validate(error),error);
+        }else require(!arrays.contains("SurfaceGridGeometry")&&!arrays.contains("SurfaceGridElevations"),"DEM metadata requires model schema 2.");
         const auto extent = "0 " + std::to_string(p.nx - 1) + " 0 " + std::to_string(p.ny - 1) + " 0 " +
                             std::to_string(p.nz - 1);
         require(attribute(gridHeader, "WholeExtent") == extent, "Model/grid extent mismatch.");

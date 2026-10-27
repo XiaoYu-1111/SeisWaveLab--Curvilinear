@@ -8,6 +8,7 @@
 #define SEIS_2D_HD inline
 #endif
 namespace Seis2D::Curvilinear::Point {
+inline constexpr int maxFields=18; // 5 elastic, or 6 plane-strain stresses/velocities + 4 per GSLS branch.
 struct Mesh {
     int nx{}, nz{};
     std::size_t count{};
@@ -15,9 +16,12 @@ struct Mesh {
     const double *a{}, *b{}, *jac{}, *normals{}, *lambda{}, *mu{}, *rho{}, *source{}, *damping{};
     double sourceDirection[3]{0, 0, 1};
     const double *sourceGradient[2]{};
+    int mechanisms{},fieldCount{5};
+    double rates[3]{};
+    const double *deltaP[3]{},*deltaS[3]{};
 };
 struct Fields {
-    double *f[5]{};
+    double *f[maxFields]{};
 };
 SEIS_2D_HD std::size_t index(const Mesh &g, int i, int k) {
     return i + static_cast<std::size_t>(g.nx) * k;
@@ -46,8 +50,9 @@ SEIS_2D_HD void surfaceDerivative(const Fields &w, const Mesh &g, std::size_t q,
                                        n[2]{c[0] / length, c[1] / length};
     const double dx = derivative(w.f[0], g, q, 0, dir), dz = derivative(w.f[1], g, q, 0, dir),
                  lambda = g.lambda[q], mu = g.mu[q];
-    const double t[2]{(lambda + 2 * mu) * dx * c[0] + mu * dz * c[1], mu * dz * c[0] + lambda * dx * c[1]},
-        normal = t[0] * n[0] + t[1] * n[1];
+    double t[2]{(lambda + 2 * mu) * dx * c[0] + mu * dz * c[1], mu * dz * c[0] + lambda * dx * c[1]};
+    for(int l=0;l<g.mechanisms;++l){const int m=6+4*l;t[0]-=w.f[m][q]*c[0]+w.f[m+2][q]*c[1];t[1]-=w.f[m+2][q]*c[0]+w.f[m+1][q]*c[1];}
+    const double normal = t[0] * n[0] + t[1] * n[1];
     for (int v = 0; v < 2; ++v)
         result[v] = -(t[v] - n[v] * normal) / (mu * c2) - n[v] * normal / ((lambda + 2 * mu) * c2);
 }
@@ -111,7 +116,14 @@ SEIS_2D_HD void rhs(const Fields &w, Fields out, const Mesh &g, std::size_t q, d
     out.f[2][q] = lambda * div + 2 * mu * dx[0];
     out.f[3][q] = lambda * div + 2 * mu * dz[1];
     out.f[4][q] = mu * (dz[0] + dx[1]);
-    for (int f = 0; f < 5; ++f)
+    if(g.mechanisms){out.f[5][q]=lambda*div;
+        for(int l=0;l<g.mechanisms;++l){const int m=6+4*l;const double dp=g.deltaP[l][q],ds=g.deltaS[l][q],dl=dp-2*ds;
+            const double drive[4]{dl*div+2*ds*dx[0],dl*div+2*ds*dz[1],ds*(dz[0]+dx[1]),dl*div};
+            out.f[2][q]-=w.f[m][q];out.f[3][q]-=w.f[m+1][q];out.f[4][q]-=w.f[m+2][q];out.f[5][q]-=w.f[m+3][q];
+            for(int f=0;f<4;++f)out.f[m+f][q]=g.rates[l]*(drive[f]-w.f[m+f][q]);
+        }
+    }
+    for (int f = 0; f < g.fieldCount; ++f)
         out.f[f][q] -= g.damping[q] * w.f[f][q];
 }
 SEIS_2D_HD double value(const Fields &w, const Mesh &g, std::size_t q, int component) {
@@ -119,6 +131,7 @@ SEIS_2D_HD double value(const Fields &w, const Mesh &g, std::size_t q, int compo
            : component == 1 ? w.f[0][q]
            : component == 2
                ? ::sqrt(w.f[0][q] * w.f[0][q] + w.f[1][q] * w.f[1][q])
+               : g.mechanisms ? -(w.f[2][q]+w.f[3][q]+w.f[5][q])/3
                : -(1 + g.lambda[q] / (2 * (g.lambda[q] + g.mu[q]))) * (w.f[2][q] + w.f[3][q]) / 3;
 }
 SEIS_2D_HD double energy(const Fields &w, const Mesh &g, std::size_t q) {

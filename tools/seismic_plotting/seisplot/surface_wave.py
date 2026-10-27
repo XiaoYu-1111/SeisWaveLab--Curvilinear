@@ -55,7 +55,7 @@ class SurfaceWaveStudy(FourCaseStudy):
         return self.picks
 
     def _phase_axes(self,ax,cid,wi):
-        a=self.dispersion[(cid,wi)];im=ax.pcolormesh(a['freq'],a['v'],a['coherence'],cmap='viridis',vmin=0,vmax=1,shading='auto',rasterized=True)
+        a=self.dispersion[(cid,wi)];im=ax.pcolormesh(a['freq'],a['v'],a['coherence'],cmap=self.cfg['dispersion'].get('cmap','viridis'),vmin=0,vmax=1,shading='auto',rasterized=True)
         opt=self.cfg['dispersion'];c=self.byid[cid]
         if c['case'].get('uniform_rayleigh_m_s') is not None:
             ax.axhline(c['case']['uniform_rayleigh_m_s'],color='#e31a1c',lw=1.7,label='均匀半空间理论')

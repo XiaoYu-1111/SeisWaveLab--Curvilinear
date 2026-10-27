@@ -9,6 +9,7 @@
 
 namespace Seis3D::Curvilinear::Ui {
 struct VisualSettings3D {
+    bool operator==(const VisualSettings3D&)const=default;
     int component{0};
     int modelComponent{0}; // Vp, Vs, density. Independent of the five wave components.
     int displayMode{0}; // 0 wavefield, 1 material, 2 material + wavefield.

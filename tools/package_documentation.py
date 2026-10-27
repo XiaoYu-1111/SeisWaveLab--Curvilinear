@@ -4,6 +4,7 @@ All generated files stay in outer out/. No deployment or user site modification.
 """
 import csv
 import hashlib
+import html
 import json
 import re
 import shutil
@@ -22,7 +23,7 @@ CODE = re.compile(r'(```[\s\S]*?```|`[^`\n]*`)')
 def references(text):
     return TOKEN.findall(CODE.sub('',text))
 TITLE = 'SeisWave Lab：曲网格二维与三维弹性波模拟的理论、实现与应用'
-UPDATED = '2026-10-20'
+UPDATED = '2026-10-27'
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -61,17 +62,20 @@ def main():
     DOCS.mkdir(parents=True,exist_ok=True)
     (DOCS/'images').mkdir(exist_ok=True)
     rows=list(csv.DictReader((SHOTS/'capture.tsv').open(encoding='utf-8'),delimiter='\t'))
-    assert len(rows)==18, 'Expected the complete eighteen-shot workflow'
+    assert len(rows)==20, 'Expected twenty current workflow captures including Turbo DEM'
     for row in rows:
         assert int(row['samples'])==int(row['step'])+1,'Receiver sample count differs from accepted-step timeline'
         assert abs(float(row['time_s'])-int(row['step'])*float(row['dt_s']))<1e-12,'Capture time does not match actual dt'
         png=SHOTS/(row['image']+'.png')
         with Image.open(png) as im:
-            assert im.size==(2560,1494), (png,im.size)
+            im.verify()
+        with Image.open(png) as im:
+            recorded=[int(row['width']),int(row['height'])]
+            row.update(recorded_size=recorded,published_size=list(im.size),metadata_size_matches=list(im.size)==recorded)
             pixels=im.convert('RGB').tobytes()
         row.update(png=png.name,sha256=digest(png),pixel_sha256=hashlib.sha256(pixels).hexdigest())
         shutil.copy2(png,DOCS/'images'/png.name)
-    metadata=dict(version='0.16.0',date=UPDATED,three_d_capture_date='2026-10-18',two_d_capture_date='2026-10-20',native_size=[2560,1494],font_px=20,language='zh-CN',theme='Paper Sand',pixel_processing='Versioned publication PNG; no crop, resize or recolor during packaging',captures=rows)
+    metadata=dict(version='0.16.0',date=UPDATED,recorded_three_d_capture_date=UPDATED,recorded_two_d_capture_date=UPDATED,theme='Red Yellow Orange',pixel_processing='Fresh full-window native framebuffer captures; lossless PNG; no crop, resize or recolor',captures=rows)
     shutil.copy2(SHOTS/'dispersion-comparison.png',DOCS/'images/dispersion-comparison.png')
 
     selected_docs={p.name for p in (ROOT/'docs').glob('*.md') if p.name!='README.md'}
@@ -112,6 +116,10 @@ def main():
     converted.add(source)
     source_text=source.read_text(encoding='utf-8')
     body=convert(source_text,source)
+    replaced=[row['image'] for row in rows if not row['metadata_size_matches']]
+    if replaced and '图像资料说明：' not in source_text:
+        notice='> 图像资料说明：'+', '.join(replaced)+' 的当前 PNG 尺寸与旧采集清单不一致；保留原图，不将旧清单中的采集日期或数值条件视为这些图片的已核验条件。其余截图也不作为本次界面更新的重新采集证据。\n\n'
+        body=notice+body
     assert re.findall(r'^## (.+)$',body,re.M)==['1 背景','2 原理','3 实现过程','4 界面介绍','5 附录']
     (DOCS/'PROJECT_MANUAL.md').write_text(body,encoding='utf-8')
     for name in sorted(selected_docs-{'PROJECT_MANUAL.md'}):
@@ -139,30 +147,48 @@ def main():
     for row in rows2d:
         png=SHOTS/'two-d'/(row['image']+'.png')
         with Image.open(png) as im:
-            assert im.size==(2560,1494)
+            im.verify()
+        with Image.open(png) as im:
+            recorded=[int(row['width']),int(row['height'])]
+            row.update(recorded_size=recorded,published_size=list(im.size),metadata_size_matches=list(im.size)==recorded)
             pixel_hash=hashlib.sha256(im.convert('RGB').tobytes()).hexdigest()
         shutil.copy2(png,DOCS/'images'/('two-d-'+png.name))
         row.update(png='two-d-'+png.name,sha256=digest(png),pixel_sha256=pixel_hash)
     metadata['two_d_captures']=rows2d
-    metadata['two_d_theme']='Warm Ivory'
-    metadata['home_capture']={'png':'two-d-home.png','native_size':[2560,1494],'sha256':digest(SHOTS/'two-d/home.png'),'content':'Program-drawn functional illustration; no solver state'}
+    metadata['two_d_theme']='Red Yellow Orange'
+    with Image.open(SHOTS/'two-d/home.png') as image:home_size=list(image.size)
+    metadata['home_capture']={'png':'two-d-home.png','published_size':home_size,'sha256':digest(SHOTS/'two-d/home.png'),'content':'Program-drawn functional illustration; no solver state'}
     metadata['total_native_screenshots']=len(rows)+len(rows2d)+1
     (DOCS.parent/'capture-manifest.json').write_text(json.dumps(metadata,ensure_ascii=False,indent=2),encoding='utf-8')
-    gallery=['# 界面与模拟过程图集' ,'', '32 张 2560×1494 原生完整客户区图；三维与主页采集于 2026-10-18，二维流程于 2026-10-20 从当前程序重新采集，不裁剪、不缩放。18 张为三维工作流，13 张为二维流程，另有主页。时间为实际完整步骤对应时刻，AGC/单道视图不改变原始记录。算例物性、震源和边界说明见[主文附录 E](PROJECT_MANUAL.md)。不同会话、自动色标或 AGC 视图不能直接比较绝对幅度；初始界面不构成动态计算精度证据。','']
+    gallery=['# 界面与模拟过程图集' ,'', '34张2026-10-27重新采集的完整窗口界面图，统一红黄橙主题，2560×1494原生分辨率，无裁剪、无拉伸。20张三维（含默认DEM的turbo地表及俯视）、13张二维流程，另有主页。二维采用参数/波场/记录并列，三维记录页扩大道集高度。算例说明见[主文附录 E](PROJECT_MANUAL.md)。不同会话、自动色标或 AGC 视图不能直接比较绝对幅度，初始界面不构成动态计算精度证据。','']
     image_labels={Path(target).stem:label for bang,label,target in TOKEN.findall(source_text) if bang}
     for number,row in enumerate(rows,1):
         label=image_labels[row['image']]
+        if not row['metadata_size_matches']:
+            gallery += [f"## {number}. {label}",'',f"当前图片 {row['published_size']}，与旧采集清单尺寸不一致；该图的采集日期和模型条件尚未重新核验，不附用旧数值条件。",'',f"![{label}](images/{row['png']})",'']
+            continue
         gallery += [f"## {number}. {label}",'',f"{row['backend']} | {row['nx']}×{row['ny']}×{row['nz']} | h={row['spacing_m']} m | f₀={row['f0_hz']} Hz | 第 {row['step']} 步 | t={float(row['time_s']):.6f} s | dt={float(row['dt_s'])*1000:.6f} ms | 参考 PPW={float(row['ppw']):.3f} | {row['receivers']} 位置×{row['samples']} 样本",'',f"![{label}](images/{row['png']})",'']
     labels2d={'model':'二维建模','workbench':'参数标签与运行进度','completed':'模拟完成与接收记录','model-io':'模型保存与载入','export':'波场分量导出','segy':'SEG-Y 兼容导出','help':'横向快捷键帮助','display':'独立图层与配色','record-options':'记录显示参数','layers':'分层介质编辑','terrain':'高程剖面导入','source-explosion':'爆炸矩源波场','elevation-examples':'山丘与沟谷示例'}
     for number,row in enumerate(rows2d,len(rows)+1):
         label=labels2d[row['image']]
+        if not row['metadata_size_matches']:
+            gallery += [f"## {number}. {label}",'',"当前图片与旧采集清单尺寸不一致；该图的采集条件尚未重新核验。",'',f"![{label}](images/{row['png']})",'']
+            continue
         gallery += [f"## {number}. {label}",'',f"{row['backend']} | {row['nx']}×{row['nz']} | h={row['spacing_m']} m | f₀={row['f0_hz']} Hz | 第 {row['step']} 步 | t={float(row['time_s']):.6f} s | dt={float(row['dt_s'])*1000:.6f} ms | 记录间隔={float(row['record_dt_s'])*1000:.3f} ms",'',f"![{label}](images/{row['png']})",'']
-    gallery += ['## 32. 曲面二维与三维入口','','![主页，程序绘制的功能示意](images/two-d-home.png)','']
+    gallery += [f'## {len(rows)+len(rows2d)+1}. 曲面二维与三维入口','','![主页，程序绘制的功能示意](images/two-d-home.png)','']
     (DOCS/'SCREENSHOT_GALLERY.md').write_text('\n'.join(gallery),encoding='utf-8')
-    for name in ['LICENSE','THIRD_PARTY_NOTICES.md']: shutil.copy2(ROOT/name,DOCS/name)
-    (DOCS/'README.md').write_text('# SeisWave Lab 图文说明\n\n[用户手册](USER_GUIDE.md) 提供实际操作与数据复现；[完整说明](PROJECT_MANUAL.md) 按背景、原理、实现过程、界面介绍和附录组织，包含数学推导、算例条件、数据定义与参考文献。[采集生产应用分析](ACQUISITION_PRODUCTION_VALUE.md) 说明黄土塬试验用途与能力边界；[性能报告](PERFORMANCE_BENCHMARK.md) 和 [当前验证](NUMERICS_AND_VALIDATION.md) 提供计时及证据。[界面与模拟过程图集](SCREENSHOT_GALLERY.md) 收录32张原生完整界面图，正文另有内点频散分析图，图像均在 images 目录。\n\n本文区分数学模型、当前实现和已有证据范围，不以运行完成或后端一致代替物理精度验证。普通 Markdown 阅读器需启用数学公式渲染。软件许可和来源见随附 LICENSE 与 THIRD_PARTY_NOTICES.md。\n',encoding='utf-8')
+    cards=[]
+    for row in rows+rows2d:
+        label=image_labels.get(row['image'],labels2d.get(row['image'],row['image']))
+        cards.append(f'<section><h2>{html.escape(label)}</h2><p>{row["published_size"][0]}×{row["published_size"][1]} · 红黄橙 · {UPDATED}</p><a href="images/{row["png"]}"><img loading="lazy" src="images/{row["png"]}" alt="{html.escape(label)}"></a></section>')
+    cards.append('<section><h2>二维 / 三维主页</h2><a href="images/two-d-home.png"><img loading="lazy" src="images/two-d-home.png" alt="主页"></a></section>')
+    gallery_html='<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>SeisWave Lab 完整窗口截图</title><style>body{font:16px "Microsoft YaHei",sans-serif;margin:0;background:#fff5e7;color:#382118}header{background:linear-gradient(120deg,#a52218,#e57724);color:white;padding:30px}main{margin:auto;max-width:1900px;padding:20px}section{margin:0 0 28px;background:white;border:1px solid #efd3ae;padding:18px}h2{font-size:22px;color:#a52218}img{width:100%;height:auto}p{line-height:1.8}</style><header><h1>SeisWave Lab · 完整窗口图集</h1><p>2026-10-27重新采集34张界面图，原生2560×1494，无裁切与拉伸。红黄橙主题；波场与接收记录沿用原有彩色显示，地表使用turbo。点击图片可查看完整原图。</p></header><main>'+''.join(cards)+'</main></html>'
+    (DOCS/'SCREENSHOT_GALLERY.html').write_text(gallery_html,encoding='utf-8')
 
-    doc_files=sorted(selected_docs)+['SCREENSHOT_GALLERY.md','README.md','LICENSE','THIRD_PARTY_NOTICES.md']+sorted(linked_files)
+    for name in ['LICENSE','THIRD_PARTY_NOTICES.md']: shutil.copy2(ROOT/name,DOCS/name)
+    (DOCS/'README.md').write_text('# SeisWave Lab 图文说明\n\n[用户手册](USER_GUIDE.md) 提供实际操作与数据复现；[完整说明](PROJECT_MANUAL.md) 按背景、原理、实现过程、界面介绍和附录组织，包含数学推导、算例条件、数据定义与参考文献。[采集生产应用分析](ACQUISITION_PRODUCTION_VALUE.md) 说明黄土塬试验用途与能力边界；[性能报告](PERFORMANCE_BENCHMARK.md) 和 [当前验证](NUMERICS_AND_VALIDATION.md) 提供计时及证据。[界面与模拟过程图集](SCREENSHOT_GALLERY.md) 收录34张2026-10-27新采集的红黄橙主题完整窗口图，正文另有内点频散分析图，图像均在 images 目录。\n\n本文区分数学模型、当前实现和已有证据范围，不以运行完成或后端一致代替物理精度验证。普通 Markdown 阅读器需启用数学公式渲染。软件许可和来源见随附 LICENSE 与 THIRD_PARTY_NOTICES.md。\n',encoding='utf-8')
+
+    doc_files=sorted(selected_docs)+['SCREENSHOT_GALLERY.md','SCREENSHOT_GALLERY.html','README.md','LICENSE','THIRD_PARTY_NOTICES.md']+sorted(linked_files)
     for resource in sorted((ROOT/'resources/examples/elevation').rglob('*')):
         if resource.suffix.lower() not in {'.csv','.md'}: continue
         relative='examples/elevation/'+resource.relative_to(ROOT/'resources/examples/elevation').as_posix()
@@ -203,7 +229,7 @@ def main():
     (hexo/'source/_posts/seis3d-curvilinear.md').write_text(header+'---\n\n'+TOKEN.sub(hexo_link,body),encoding='utf-8')
     (BLOG/'README.md').write_text('''# GitHub Pages / Hexo 发布包
 
-两版均由同一份正文生成，依次为背景、原理、实现过程、界面介绍和附录。数学推导、算例条件、证据边界及参考文献一致，文章修订日期为2026年10月20日。附带最新验证汇总、性能报告、倍速曲线和60轮原始计时数据；不包含试跑、构建日志、EXE或计算中间场。
+两版均由同一份正文生成，依次为背景、原理、实现过程、界面介绍和附录。数学推导、算例条件、证据边界及参考文献一致，文章及全部界面截图更新于2026年10月27日。附带最新验证汇总、性能报告、倍速曲线和60轮原始计时数据；不包含试跑、构建日志、EXE或计算中间场。
 
 ## GitHub Pages（Jekyll）
 
@@ -240,7 +266,7 @@ assets 下的 PROJECT_MANUAL.md / SCREENSHOT_GALLERY.md 为普通相对路径 Ma
             assert Path(path).name==path and (hexo_post/path).is_file(),path
     assert body.count('$$')%2==0 and body.count('```')%2==0,'Unbalanced math/code delimiters'
     doc_files=sorted(set(doc_files))
-    report=dict(updated=UPDATED,sections=5,appendices=8,native_screenshots=len(rows)+len(rows2d)+1,native_3d=len(rows),native_2d=len(rows2d),native_size=[2560,1494],markdown_pages_checked=sum(f.endswith('.md') for f in doc_files),github_article='github-pages/_posts/2026-10-16-seis3d-curvilinear.md',hexo_article='hexo/source/_posts/seis3d-curvilinear.md',hexo_image_format='markdown-bare-filename',pixel_hashes_verified=True)
+    report=dict(updated=UPDATED,sections=5,appendices=8,published_screenshots=len(rows)+len(rows2d)+1,three_d=len(rows),two_d=len(rows2d),published_sizes=sorted(set(tuple(row['published_size']) for row in rows+rows2d)),metadata_size_mismatches=[row['png'] for row in rows+rows2d if not row['metadata_size_matches']],markdown_pages_checked=sum(f.endswith('.md') for f in doc_files),github_article='github-pages/_posts/2026-10-16-seis3d-curvilinear.md',hexo_article='hexo/source/_posts/seis3d-curvilinear.md',hexo_image_format='markdown-bare-filename',pixel_hashes_verified=True)
     report_path=OUTPUT/'maintenance/package-validation.json'
     report_path.parent.mkdir(parents=True,exist_ok=True)
     report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')

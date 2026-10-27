@@ -2,6 +2,7 @@
 #include "Seis3D/TraceProcessing.hpp"
 #include "SeisCommon/SeismicRecords.hpp"
 namespace SeisWave::Ui {
+struct WorkspaceTools;
 namespace TraceProcessing = Seis3D::Curvilinear::TraceProcessing;
 struct RecordSettings {
     int view{}, component{}, style{3}, palette{}, first{}, visible{64};
@@ -14,6 +15,7 @@ struct RecordSettings {
 class RecordView {
   public:
     RecordSettings settings;
+    WorkspaceTools* workspace{};
     std::array<float, 4> optionsBounds{};
     void draw(const RecordDataView &, int &selectedReceiver, const char *window, bool *open = nullptr);
     void drawContent(const RecordDataView &, int &selectedReceiver);
@@ -40,7 +42,10 @@ class RecordView {
     int cachedSelected_{-1}, first_{}, count_{}, densityRows_{};
     double rawPeak_{}, commonPeak_{}, endTime_{}, startTime_{}, dt_{};
     bool fit_{true};
-    void options(int total);
+    double paperReference_{};
+    std::array<double,2> signalWindow_{.05,.15},interferenceWindow_{0,.05};
+    double thresholdFraction_{.1};std::string analysisNotice_;
+    void options(const RecordDataView&);
     void refresh(const RecordDataView &, int selected);
     void section(const RecordDataView &, int &selected);
     void single(const RecordDataView &, int selected);

@@ -7,6 +7,7 @@ from seisplot.core import load_config
 from seisplot.four_case import FourCaseStudy
 from seisplot.surface_wave import SurfaceWaveStudy
 from seisplot.inversion import InversionStudy
+from seisplot.publication import style_catalog
 
 def run(kind,config,steps=None):
     classes={'four':FourCaseStudy,'masw':SurfaceWaveStudy,'inversion':InversionStudy}
@@ -22,8 +23,27 @@ def run(kind,config,steps=None):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--kind',choices=['four','masw','inversion'],required=True)
-    p.add_argument('--config',type=Path,required=True)
+    p.add_argument('--kind',choices=['four','masw','inversion'])
+    p.add_argument('--config',type=Path)
+    p.add_argument('--list-styles',action='store_true',help='Show versioned display profiles')
+    p.add_argument('--frequency',type=int,choices=[15,30],help='Select one frequency from the four-model example')
+    p.add_argument('--output-dir',help='Override output below the workspace outer out directory')
+    p.add_argument('--check-config',action='store_true',help='Print effective configuration without reading simulation arrays')
     p.add_argument('--steps',help='Comma-separated steps; omit to run all')
-    a=p.parse_args();study=run(a.kind,load_config(a.config),a.steps.split(',') if a.steps else None)
+    a=p.parse_args()
+    if a.list_styles:
+        import json
+        catalog=style_catalog();print(json.dumps({'version':catalog['version'],'profiles':list(catalog['profiles']),'colors':catalog['colors']},ensure_ascii=False,indent=2));raise SystemExit
+    if not a.kind or not a.config:p.error('--kind and --config are required unless --list-styles is used')
+    config=load_config(a.config)
+    if a.frequency:
+        if a.kind!='four':p.error('--frequency applies to four-model studies only')
+        config['datasets']=[d for d in config['datasets'] if d['label']==f'{a.frequency}Hz']
+        if not config['datasets']:p.error('Requested frequency label is absent from the configuration')
+        config['output_dir']=str(Path(config['output_dir'])/f'{a.frequency}Hz')
+    if a.output_dir:config['output_dir']=a.output_dir
+    if a.check_config:
+        import json
+        print(json.dumps(config,ensure_ascii=False,indent=2));raise SystemExit
+    study=run(a.kind,config,a.steps.split(',') if a.steps else None)
     print('Output:',study.out)

@@ -1,6 +1,7 @@
 #include "Seis2D/ModelIo2D.hpp"
 #include "SeisCommon/AtomicFile.hpp"
 #include "SeisCommon/SegyIo.hpp"
+#include "MemoryBudget2D.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -16,7 +17,11 @@ namespace {
 using Clock = std::chrono::steady_clock;
 void check(bool ok, const std::string &why) { if (!ok) throw std::runtime_error(why); }
 double seconds(Clock::time_point start) { return std::chrono::duration<double>(Clock::now()-start).count(); }
-struct Options { std::filesystem::path output, terrain; int group{-1}; bool test{}; double frequency{15}; };
+struct Options {
+    std::filesystem::path output, terrain;
+    int group{-1}; bool test{}, attenuation{};
+    double frequency{15}, width{10000}, depth{4000}, duration{3}, originX{};
+};
 void textFile(const std::filesystem::path &path, const std::string &text) {
     auto pending = path; pending += ".pending";
     { std::ofstream out(pending); out << text; out.close(); check(bool(out), "Cannot write " + path.string()); }
@@ -32,7 +37,8 @@ void status(const Simulation &s, const std::filesystem::path &folder, const char
         << ",\"mean_step_ms\":" << (s.step()?d.totalStepMs/s.step():0)
         << ",\"finite\":" << (d.finite?"true":"false") << ",\"energy\":" << d.energy
         << ",\"peak_energy\":" << d.peakEnergy << ",\"traction_relative\":" << d.tractionRelative
-        << ",\"max_velocity\":" << d.maxVelocity << ",\"ppw\":" << d.ppw << "\n}\n";
+        << ",\"max_velocity\":" << d.maxVelocity << ",\"ppw\":" << d.ppw
+        << ",\"state_fields\":" << d.stateFields << ",\"max_q_fit_error\":" << d.maxRelativeQError << "\n}\n";
     textFile(folder/"status.json",out.str());
 }
 void records(const Simulation &s, const std::filesystem::path &folder, bool final) {
@@ -70,23 +76,49 @@ void run(const Options &o) {
     check(!std::filesystem::exists(o.output) || std::filesystem::is_empty(o.output),"Refusing to overwrite an existing experiment");
     for(const char *dir:{"model","records","snapshots","figures"}) std::filesystem::create_directories(o.output/dir);
     Parameters p;
-    p.nx=5001; p.nz=2001; p.spacing=2; p.relief=0; p.flattenDepth=1000;
+    check(std::isfinite(o.width) && o.width>=160 && o.width<=10000 &&
+          std::isfinite(o.depth) && o.depth>=160 && o.depth<=4000 &&
+          std::isfinite(o.duration) && o.duration>0 && o.duration<=3 &&
+          std::isfinite(o.originX) && o.originX>=0 && o.originX+o.width<=10000,
+          "Require a domain within the original 10 km by 4 km and a duration in (0,3] s");
+    check(std::abs(o.width/2-std::round(o.width/2))<1e-10 &&
+          std::abs(o.depth/2-std::round(o.depth/2))<1e-10,
+          "Domain extents must be multiples of the 2 m grid spacing");
+    p.nx=static_cast<int>(std::llround(o.width/2))+1;
+    p.nz=static_cast<int>(std::llround(o.depth/2))+1;
+    p.spacing=2; p.relief=0; p.flattenDepth=1000;
     check(std::isfinite(o.frequency) && o.frequency>0 && o.frequency<=1e6,"Invalid source frequency");
-    p.frequency=o.frequency; p.duration=3; p.cfl=.6; p.maxSteps=0;
+    p.frequency=o.frequency; p.duration=o.duration; p.cfl=.6; p.maxSteps=0;
     p.source.kind=SeisWave::SourceKind::IsotropicMoment; p.momentPerLength=2e6; p.sourceX=-1; p.sourceZ=15;
-    p.receiverStart=10; p.receiverStride=20; p.receiverCount=250; p.receiverDepth=0; p.sampleIntervalMs=.5;
+    // Keep the original global receiver line (20+40*r m), including its phase.
+    const int firstTrace=std::max(0,static_cast<int>(std::ceil((o.originX-20)/40)));
+    const double firstReceiver=20+40*firstTrace-o.originX;
+    check(std::abs(firstReceiver/2-std::round(firstReceiver/2))<1e-10,"Receiver line must align with the grid");
+    p.receiverStart=static_cast<int>(std::llround(firstReceiver/2)); p.receiverStride=20;
+    p.receiverCount=static_cast<int>(std::floor((o.width-firstReceiver)/40))+1;
+    p.receiverDepth=0; p.sampleIntervalMs=.5;
     p.absorbing=true; p.spongeX=p.spongeZ=64; p.spongeStrength=3; p.layered=true;
     const bool terrain=o.group%2==1, lvl=o.group>=2;
-    p.layers=lvl?std::vector<Layer>{{20,1000,500,1800},{40,1600,800,2000},{40,2300,1250,2200},
-                      {900,3000,1700,2400},{1000,3500,2000,2550},{0,4200,2400,2700}}
-                :std::vector<Layer>{{1000,3000,1700,2400},{1000,3500,2000,2550},{0,4200,2400,2700}};
+    // Trial Q values, not estimates from field measurements. The background
+    // materials have the same Q in the with/without low-velocity-layer cases.
+    p.layers=lvl?std::vector<Layer>{{20,1000,500,1800,20,12.5},{40,1600,800,2000,40,25},{40,2300,1250,2200,80,50},
+                      {900,3000,1700,2400,150,90},{1000,3500,2000,2550,200,120},{0,4200,2400,2700,250,150}}
+                :std::vector<Layer>{{1000,3000,1700,2400,150,90},{1000,3500,2000,2550,200,120},{0,4200,2400,2700,250,150}};
+    p.attenuation.enabled=o.attenuation; p.attenuation.mechanisms=3;
+    p.attenuation.referenceFrequency=p.frequency;
+    p.attenuation.minFrequency=.2*p.frequency; p.attenuation.maxFrequency=3*p.frequency;
     p.importedSurface=terrain; p.surfaceDatum=1481.322148135886;
     std::string error;
-    if(terrain && !o.test) check(readSurfaceProfile(o.terrain,p.surfaceSamples,error),error);
+    if(terrain && !o.test) {
+        check(readSurfaceProfile(o.terrain,p.surfaceSamples,error),error);
+        // Retain the complete input profile around the selected domain so that
+        // cropping does not change endpoint slopes or interior interpolation.
+        for(auto& sample:p.surfaceSamples) sample[0]-=o.originX;
+    }
     // Explicit small end-to-end runner validation; never used for production.
     if(o.test) {
         p.nx=81; p.nz=81; p.flattenDepth=100; p.duration=.01;
-        p.receiverCount=4; p.spongeX=p.spongeZ=8;
+        p.receiverStart=10; p.receiverCount=4; p.spongeX=p.spongeZ=8;
         if(terrain) p.surfaceSamples={{0,p.surfaceDatum},{80,p.surfaceDatum+2},{160,p.surfaceDatum}};
     }
     const ComputeSettings3D compute{1,0};
@@ -96,8 +128,9 @@ void run(const Options &o) {
         const auto &g=s.grid(); const auto source=g.coordinates[g.index(p.nx/2+ghost,p.sourceZ+ghost)];
         check(s.backend().kind==BackendKind3D::Cuda && s.backend().cudaDevice==0,"Unexpected compute device");
         if(!o.test) {
-            check(s.totalSteps()==(terrain?17992:14850),"Final report and solver step count differ");
-            for(int depth:{500,1000}) for(int x:{0,p.nx/2,p.nx-1})
+            if(!o.attenuation && o.width==10000 && o.depth==4000 && o.duration==3)
+                check(s.totalSteps()==(terrain?17992:14850),"Final report and solver step count differ");
+            for(int depth:{500,1000}) if(depth<p.nz) for(int x:{0,p.nx/2,p.nx-1})
                 check(std::abs(g.coordinates[g.index(x+ghost,depth+ghost)][1]-depth*2.)<1e-9,"Target reflector not horizontal");
         }
         std::ofstream geometry(o.output/"records/receiver_geometry.csv"); geometry<<std::setprecision(17)
@@ -108,18 +141,30 @@ void run(const Options &o) {
             geometry<<r+1<<','<<r<<','<<x<<','<<receiver.position[1]<<','<<x-source[0]<<','<<edge<<','<<!edge<<','<<source[0]<<','<<source[1]<<'\n';
         }
         geometry.close(); check(bool(geometry),"Receiver geometry write failed");
+        const auto budget=Detail::memoryBudget(p,BackendKind3D::Cuda);
         std::ostringstream metadata; metadata<<std::setprecision(17)
             <<"{\"group_index\":"<<o.group<<",\"terrain\":"<<(terrain?"true":"false")<<",\"low_velocity_layer\":"<<(lvl?"true":"false")
             <<",\"validation_only\":"<<(o.test?"true":"false")<<",\"nx\":"<<p.nx<<",\"nz\":"<<p.nz
             <<",\"spacing_m\":2,\"frequency_hz\":"<<p.frequency<<",\"duration_s\":"<<p.duration<<",\"cfl\":0.6,\"moment_per_length_N\":2000000"
             <<",\"source_x_m\":"<<source[0]<<",\"source_z_m\":"<<source[1]<<",\"source_depth_eta_m\":30,\"flatten_depth_m\":"<<p.flattenDepth
             <<",\"surface_datum_m\":"<<p.surfaceDatum<<",\"cuda_device\":0,\"backend\":\"CUDA\",\"precision\":\"Float64\",\"record_dt_s\":0.0005"
-            <<",\"receiver_count\":"<<p.receiverCount<<",\"receiver_spacing_m\":40,\"segy_revision\":1,\"segy_format\":5,\"segy_gain\":1}\n";
+            <<",\"receiver_count\":"<<p.receiverCount<<",\"receiver_spacing_m\":40,\"segy_revision\":1,\"segy_format\":5,\"segy_gain\":1"
+            <<",\"global_origin_x_m\":"<<o.originX<<",\"width_m\":"<<o.width<<",\"depth_m\":"<<o.depth
+            <<",\"attenuation\":"<<(o.attenuation?"true":"false")<<",\"mechanisms\":3,\"reference_hz\":"<<p.frequency
+            <<",\"fit_min_hz\":"<<p.attenuation.minFrequency<<",\"fit_max_hz\":"<<p.attenuation.maxFrequency
+            <<",\"budget_host_bytes\":"<<budget.hostBytes<<",\"budget_device_bytes\":"<<budget.deviceBytes
+            <<",\"q_values_are_field_calibrated\":false,\"layers\":[";
+        for(std::size_t i=0;i<p.layers.size();++i){const auto& l=p.layers[i];if(i)metadata<<',';
+            metadata<<"{\"thickness_m\":"<<l.thickness<<",\"vp_m_s\":"<<l.vp<<",\"vs_m_s\":"<<l.vs
+                    <<",\"density_kg_m3\":"<<l.density<<",\"qp\":"<<l.qp<<",\"qs\":"<<l.qs<<'}';}
+        metadata<<"]}\n";
         textFile(o.output/"run_metadata.json",metadata.str());
         status(s,o.output,"saving_model",seconds(begin));
         std::cout<<"Initialized group="<<o.group<<" steps="<<s.totalSteps()<<" dt="<<std::setprecision(17)<<s.dt()<<std::endl;
         check(writeModelVts(s,o.output/"model/model.vts",compute,error),error);
         std::vector<double> targets=o.test?std::vector<double>{.005,.01}:std::vector<double>{.25,.5,.75,1,1.25,1.5,2,2.5,3};
+        if(!o.test){std::erase_if(targets,[&](double t){return t>p.duration;});
+            if(targets.empty() || targets.back()<p.duration)targets.push_back(p.duration);}
         SnapshotExportOptions snapshot; snapshot.components.fill(false); snapshot.components[0]=snapshot.components[1]=true; snapshot.includeMaterial=false;
         std::ofstream times(o.output/"snapshots/times.csv"); times<<std::setprecision(17)<<"file,target_time_s,actual_time_s,step\n";
         std::size_t next=0;
@@ -168,6 +213,11 @@ int main(int argc,char **argv) {
             else if(key=="--terrain") o.terrain=path;
             else if(key=="--group") o.group=std::stoi(value);
             else if(key=="--frequency") o.frequency=std::stod(value);
+            else if(key=="--width-m") o.width=std::stod(value);
+            else if(key=="--depth-m") o.depth=std::stod(value);
+            else if(key=="--duration-s") o.duration=std::stod(value);
+            else if(key=="--origin-x-m") o.originX=std::stod(value);
+            else if(key=="--q") {check(value=="on"||value=="off","Q must be on or off");o.attenuation=value=="on";}
             else throw std::runtime_error("Unknown option: "+key);
         }
         run(o); return 0;

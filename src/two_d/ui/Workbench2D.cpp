@@ -3,6 +3,8 @@
 #include "GlassMaterial.hpp"
 #include "ParameterPanelHost.hpp"
 #include "ThemeValidation.hpp"
+#include "Seis2D/AsyncSimulation2D.hpp"
+#include "WorkspaceTools.hpp"
 #include "Presentation3D.hpp"
 #include "RecordPalettes3D.hpp"
 #include "RecordView.hpp"
@@ -84,7 +86,7 @@ void fitAcquisition(Parameters &p) {
         std::max(1, std::min({p.receiverCount, 1024, 1 + (p.nx - 1 - p.receiverStart) / p.receiverStride}));
 }
 struct Workbench {
-    Simulation simulation;
+    AsyncSimulation simulation;
     Parameters staged;
     ComputeSettings3D settings, activeSettings;
     int selectedBackend{}, category{}, component{}, wavePalette{1}, modelPalette{1}, modelComponent{},
@@ -117,7 +119,7 @@ struct Workbench {
     std::array<bool, 7> snapshotComponents{false, true, false, false, false, false, false};
     std::uint64_t recordGeneration{1}, importedRevision{1};
     ImRect rebuildRect, frequencyRect, sourceKindRect, sourceMomentRect;
-    ImRect snapshotToggleRect, snapshotSaveRect;
+    ImRect snapshotToggleRect, snapshotSaveRect,attenuationToggleRect,attenuationQpRect;
     std::array<ImRect, 7> snapshotComponentRects;
     int lastHeight{};
     Seis3D::Curvilinear::CudaDeviceInventory3D inventory;
@@ -126,6 +128,7 @@ struct Workbench {
     int lastWidth{};
     float recordHeight{};
     SeisWave::Ui::ParameterPanelHost parameterHost{2};
+    SeisWave::Ui::WorkspaceTools workspace;
     int floatingCategory{},lastParameterMode{};
     bool parameterWindow{true}, waveWindow{true}, recordWindow{true}, summaryWindow{true};
     int groupEpoch{};
@@ -424,17 +427,23 @@ struct Workbench {
 #endif
     }
     void toolbar() {
+        SeisWave::Ui::setGlassSceneActive(running);
+        if(workspace.beginFrame()){layout=false;lastParameterMode=parameterHost.mode();}
+        if(!workspace.message.empty())status=std::exchange(workspace.message,{});
         if (ImGui::BeginMainMenuBar()) {
             if (button("Home", "主页", FunctionRole3D::Model))
                 home = true;
             homeRect = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
             if (ImGui::BeginMenu(l("Workspace", "工作区"))) {
+                std::array<bool,4> visibility{parameterWindow,summaryWindow,waveWindow,recordWindow};
+                if(workspace.menu(2,visibility)){parameterWindow=visibility[0];summaryWindow=visibility[1];waveWindow=visibility[2];recordWindow=visibility[3];lastParameterMode=parameterHost.mode();layout=false;}
                 ImGui::MenuItem(l("Parameters", "参数面板"), nullptr, &parameterWindow);
                 ImGui::MenuItem(l("Active parameters", "当前生效参数"), nullptr, &summaryWindow);
                 ImGui::MenuItem(l("Wavefield", "波场窗口"), nullptr, &waveWindow);
                 ImGui::MenuItem(l("Receivers", "接收记录"), nullptr, &recordWindow);
                 if (ImGui::MenuItem(l("Restore layout [F]", "恢复布局 [F]"))) {
                     SeisWave::Ui::setParameterDisplayMode(2,0);
+                    workspace.forgetFocus();
                     parameterWindow = summaryWindow = waveWindow = recordWindow = layout = true;
                 }
                 ImGui::EndMenu();
@@ -455,12 +464,11 @@ struct Workbench {
                 ImGui::SetNextItemWidth(230);
                 if (ImGui::SliderFloat(l("Font size (px)", "字体大小（px）"), &font, 16, 28, "%.0f")) {
                     SeisWave::Ui::setInterfaceFontSize(font);
-                    layout = true;
                 }
                 glassAppearanceControls3D();
                 ImGui::EndMenu();
             }
-            if(ImGui::BeginMenu(l("Parameter panels","参数面板"))){if(parameterHost.menu()){parameterWindow=true;layout=true;}ImGui::EndMenu();}
+            if(ImGui::BeginMenu(l("Parameter panels","参数面板"))){if(parameterHost.menu())parameterWindow=true;ImGui::EndMenu();}
             if (button("Help [F1]", "帮助 [F1]", FunctionRole3D::Display))
                 help = !help;
             ImGui::EndMainMenuBar();
@@ -507,9 +515,9 @@ struct Workbench {
                          ImGuiWindowFlags_NoSavedSettings);
         const auto id = ImGui::GetID("2DDock");
         ImGui::DockSpace(id, {0, 0});
-        if(lastParameterMode!=parameterHost.mode()){lastParameterMode=parameterHost.mode();layout=true;}
-        if (layout || lastWidth != static_cast<int>(vp->Size.x) ||
-            lastHeight != static_cast<int>(vp->Size.y)) {
+        if(lastParameterMode!=parameterHost.mode()){layout=!workspace.changeMode(lastParameterMode,parameterHost.mode());lastParameterMode=parameterHost.mode();}
+        if(lastWidth!=static_cast<int>(vp->Size.x)||lastHeight!=static_cast<int>(vp->Size.y))fit=true;
+        if (layout || !ImGui::DockBuilderGetNode(id)) {
             fit = true;
             ImGui::DockBuilderRemoveNode(id);
             ImGui::DockBuilderAddNode(id, ImGuiDockNodeFlags_DockSpace);
@@ -531,6 +539,7 @@ struct Workbench {
             lastWidth = static_cast<int>(vp->Size.x);
             lastHeight = static_cast<int>(vp->Size.y);
         }
+        lastWidth=static_cast<int>(vp->Size.x);lastHeight=static_cast<int>(vp->Size.y);
         ImGui::End();
     }
     void updateTerrainPreview() {
@@ -707,13 +716,14 @@ struct Workbench {
                         "厚度按计算深度定义，末层自动填充剩余深度；相同深度索引保持相同物性。"));
             const float tableHeight =
                 std::max(100.f, ImGui::GetContentRegionAvail().y - ImGui::GetFontSize() * 6 - 48);
-            if (ImGui::BeginTable("##layerTable", 5,
+            if (ImGui::BeginTable("##layerTable", staged.attenuation.enabled?7:5,
                                   ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
                                       ImGuiTableFlags_SizingStretchSame,
                                   {0, tableHeight})) {
                 for (const char *name : {l("Layer", "地层"), l("Thickness (m)", "厚度（m）"), "Vp (m/s)",
                                          "Vs (m/s)", l("Density (kg/m3)", "密度（kg/m³）")})
                     ImGui::TableSetupColumn(name);
+                if(staged.attenuation.enabled){ImGui::TableSetupColumn("Qp");ImGui::TableSetupColumn("Qs");}
                 ImGui::TableSetupScrollFreeze(0, 1);
                 ImGui::TableHeadersRow();
                 for (std::size_t i = 0; i < layerDraft.size(); ++i) {
@@ -722,7 +732,7 @@ struct Workbench {
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
                     ImGui::Text("%zu", i + 1);
-                    for (int c = 0; c < 4; ++c) {
+                    for (int c = 0; c < (staged.attenuation.enabled?6:4); ++c) {
                         ImGui::TableNextColumn();
                         ImGui::SetNextItemWidth(-1);
                         if (c == 0 && i + 1 == layerDraft.size())
@@ -731,7 +741,7 @@ struct Workbench {
                             double *value = c == 0   ? &v.thickness
                                             : c == 1 ? &v.vp
                                             : c == 2 ? &v.vs
-                                                     : &v.density;
+                                            : c == 3 ? &v.density : c==4 ? &v.qp : &v.qs;
                             ImGui::PushID(c);
                             ImGui::InputDouble("##value", value, 0, 0, "%.2f");
                             ImGui::PopID();
@@ -760,9 +770,11 @@ struct Workbench {
                 vs = std::min(vs, v.vs);
             ImGui::TextWrapped("%s %.2f | h <= %.3f m (8 PPW, 2.5 f0)", l("Minimum Vs", "最低 Vs"), vs,
                                vs / (20 * std::max(1.0, staged.frequency)));
+            if(staged.attenuation.enabled)ImGui::TextWrapped("%s",l("These are reference-frequency velocities; review the dispersion-aware sampling diagnostic after rebuilding.","这里使用参考频率速度；重建后请核对考虑频散的实际采样指标。"));
             if (!layerError.empty())
                 ImGui::TextWrapped("%s", layerError.c_str());
             if (button("Use layers", "采用层表", FunctionRole3D::Run)) {
+                layerError.clear();
                 bool valid = !layerDraft.empty();
                 for (std::size_t i = 0; i < layerDraft.size(); ++i) {
                     const auto &v = layerDraft[i];
@@ -770,13 +782,14 @@ struct Workbench {
                              std::isfinite(v.density) && v.vs > 0 && v.vp > 0 && v.density > 0 &&
                              std::isfinite(v.density * v.vp * v.vp) && v.vp * v.vp > 4 * v.vs * v.vs / 3 &&
                              (i + 1 == layerDraft.size() || v.thickness > 0);
+                    if(valid&&staged.attenuation.enabled){SeisWave::Rheology::Material m;valid=SeisWave::Rheology::fitMaterial(v.vp,v.vs,v.density,v.qp,v.qs,staged.attenuation,m,layerError);}
                 }
                 if (valid) {
                     layerDraft.back().thickness = 0;
                     staged.layers = layerDraft;
                     staged.layered = true;
                     ImGui::CloseCurrentPopup();
-                } else
+                } else if(layerError.empty())
                     layerError = l("Require finite positive material values, positive bulk modulus and "
                                    "positive finite-layer thickness.",
                                    "物性必须为有限正值、体积模量必须为正，非末层厚度必须大于零。");
@@ -868,7 +881,21 @@ struct Workbench {
             ImGui::EndPopup();
         }
     }
-    void controls(){if(parameterHost.mode()!=1)controlsPanel(false);}
+    void attenuationControls() {
+        const auto input=[&](const char* en,const char* zh,double& value,double increment){ImGui::TextUnformatted(l(en,zh));ImGui::SetNextItemWidth(-1);const auto id=std::string("##")+en;ImGui::InputDouble(id.c_str(),&value,increment,increment*10,"%.3f");};
+        if(parameterGroup(l("Qp / Qs attenuation (GSLS)","Qp / Qs 黏弹性（GSLS）"),0)) {
+            auto& q=staged.attenuation;ImGui::Checkbox(l("Enable material attenuation","启用介质衰减"),&q.enabled);attenuationToggleRect={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};
+            if(q.enabled){
+                if(!staged.layered){input("Qp","Qp",q.qp,5);attenuationQpRect={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};input("Qs","Qs",q.qs,5);}
+                else ImGui::TextWrapped("%s",l("Qp/Qs are set per layer in the layer editor.","Qp/Qs 在层表编辑器中逐层设置。"));
+                ImGui::SliderInt(l("Relaxation mechanisms","松弛机制数"),&q.mechanisms,1,3);
+                input("Band minimum (Hz)","拟合频带下限（Hz）",q.minFrequency,1);input("Band maximum (Hz)","拟合频带上限（Hz）",q.maxFrequency,5);input("Reference frequency (Hz)","参考频率（Hz）",q.referenceFrequency,1);
+                ImGui::TextWrapped("%s",l("Vp/Vs are phase velocities at the reference frequency. Q is fitted over this band; more mechanisms cost more memory. Passive bulk/shear checks may reject incompatible Qp/Qs.","Vp/Vs 为参考频率处相速度；Q 在所设频带内近似拟合。机制数越多，内存越大。不满足体积/剪切被动性的 Qp/Qs 将被拒绝。"));
+                if(staged.frequency<q.minFrequency||2.5*staged.frequency>q.maxFrequency)ImGui::TextWrapped("%s",l("The source effective band may exceed the Q fit band.","源的有效频带可能超出 Q 拟合频带，请核对。"));
+            }
+        }
+    }
+    void controls(){recordView.workspace=&workspace;if(parameterHost.mode()!=1)controlsPanel(false);}
     void floatingControls(){
         if(parameterHost.mode()==0)return;
         std::swap(category,floatingCategory);controlsPanel(true);std::swap(category,floatingCategory);
@@ -1013,6 +1040,7 @@ struct Workbench {
                     layerEditRect = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
                 }
             }
+            attenuationControls();
             modelFiles();
         } else if (category == 1) {
             if (parameterGroup(l("Source / dominant frequency", "震源与激发主频"),
@@ -1200,7 +1228,7 @@ struct Workbench {
         if (parameterGroup(l("Diagnostics", "数值诊断"))) {
             const auto &d = simulation.diagnostics();
             ImGui::TextWrapped("%s", simulation.backend().deviceName.c_str());
-            ImGui::Text("PPW %.2f | Energy %.4g J/m", d.ppw, d.energy);
+            ImGui::Text(simulation.parameters().attenuation.enabled?"PPW %.2f | elastic-equivalent energy %.4g J/m":"PPW %.2f | Energy %.4g J/m", d.ppw, d.energy);
             ImGui::Text("%.3f s | %.4f ms/step", d.totalStepMs / 1000,
                         simulation.step() ? d.totalStepMs / simulation.step() : 0);
             ImGui::Text("traction %.3g", d.tractionRelative);
@@ -1271,11 +1299,12 @@ struct Workbench {
             ImGui::TextWrapped("%s", l("Arrows show staged values. dt is recalculated only after a successful rebuild.",
                                        "箭头后为待应用值；仅在重建成功后更新 dt。"));
         ImGui::TextWrapped("%s", simulation.backend().deviceName.c_str());
-        ImGui::TextUnformatted("MacCormack DRP + RK4 / Float64 / P-SV");
+        ImGui::TextUnformatted(p.attenuation.enabled?"MacCormack DRP + RK4 / Float64 / P-SV + GSLS":"MacCormack DRP + RK4 / Float64 / P-SV");
         ImGui::SeparatorText(l("Effective time / geometry", "生效时间与几何"));
         ImGui::Text("dt = %.8f ms", simulation.dt() * 1000);
         ImGui::Text("%s %.5f ms", l("Record dt", "记录间隔"), simulation.recordDt() * 1000);
         ImGui::Text("f0 %.3f Hz | CFL %.3f", p.frequency, p.cfl);
+        if(p.attenuation.enabled){ImGui::Text("GSLS %d | fref %.3f Hz | band %.3f..%.3f Hz",p.attenuation.mechanisms,p.attenuation.referenceFrequency,p.attenuation.minFrequency,p.attenuation.maxFrequency);if(!p.layered)ImGui::Text("Qp %.3f | Qs %.3f",p.attenuation.qp,p.attenuation.qs);}
         ImGui::Text("%d x %d | h %.4f m", p.nx, p.nz, p.spacing);
         ImGui::TextUnformatted(p.source.kind == SeisWave::SourceKind::IsotropicMoment
                                    ? l("Isotropic moment source", "各向同性爆炸矩源")
@@ -1355,6 +1384,7 @@ struct Workbench {
             for (std::size_t i = 0; i < p.layers.size(); ++i) {
                 const auto &v = p.layers[i];
                 ImGui::TextWrapped("%zu: h %.2f m | Vp %.1f | Vs %.1f | rho %.1f", i + 1, v.thickness, v.vp, v.vs, v.density);
+                if(p.attenuation.enabled)ImGui::Text("Qp %.3f | Qs %.3f",v.qp,v.qs);
             }
         }
         ImGui::SeparatorText(l("Numerical diagnostics", "数值诊断"));
@@ -1362,6 +1392,7 @@ struct Workbench {
         ImGui::Text("dt wave %.6f ms", d.waveDt * 1000);
         ImGui::Text("dt damping %.6f ms", d.dampingDt * 1000);
         ImGui::Text("dt source %.6f ms", d.sourceDt * 1000);
+        if(p.attenuation.enabled){ImGui::Text("GSLS %d | state fields %d | dt relax %.6f ms",p.attenuation.mechanisms,d.stateFields,d.relaxationDt*1000);ImGui::TextWrapped(l("Maximum fitted Q error %.2f%%; energy is an elastic-equivalent diagnostic, not total viscoelastic energy.","Q 拟合最大相对误差 %.2f%%；能量为弹性等效诊断，不是黏弹性总能量。"),d.maxRelativeQError*100);}
         ImGui::Text("%s %d", l("CPU workers", "生效 CPU 线程"), simulation.backend().workerThreads);
         ImGui::Text("%s %d", l("CUDA device", "生效 CUDA 卡"), simulation.backend().cudaDevice);
         ImGui::Text("%.3f s | %.4f ms/step", d.totalStepMs / 1000, simulation.step() ? d.totalStepMs / simulation.step() : 0);
@@ -1371,13 +1402,16 @@ struct Workbench {
     void wavefield() {
         if (!waveWindow)
             return;
-        if (!ImGui::Begin(label("Curved X-Z wavefield", "曲面 X–Z 波场").c_str(), &waveWindow)) {
+        const auto waveTitle=label("Curved X-Z wavefield", "曲面 X–Z 波场");
+        if (!ImGui::Begin(waveTitle.c_str(), &waveWindow,workspace.prepare(waveTitle.c_str()))) {
             ImGui::End();
             return;
         }
+        workspace.tools(waveTitle.c_str());
         std::string frameError;
         if (!simulation.readFrame(component, frame, frameError)) {
             error = frameError;
+            ImGui::TextWrapped("%s",frameError.empty()?l("Refreshing wavefield in background...","后台正在刷新波场…"):frameError.c_str());
             ImGui::End();
             return;
         }
@@ -1607,6 +1641,7 @@ struct Workbench {
                     fit = true;
                 if (ImGui::IsKeyPressed(ImGuiKey_F)) {
                     SeisWave::Ui::setParameterDisplayMode(2,0);
+                    workspace.forgetFocus();
                     parameterWindow = summaryWindow = waveWindow = recordWindow = layout = true;
                 }
                 if (ImGui::IsKeyPressed(ImGuiKey_G))
@@ -1663,6 +1698,29 @@ struct Workbench {
 };
 } // namespace
 #include "WorkflowCapture2D.inc"
+
+int validateAttenuationWorkflow2D() {
+    std::string error;SeisWave::Ui::AppRuntime runtime;
+    if(!runtime.open("2D Qp/Qs workflow",true,error))throw std::runtime_error(error);
+    setLanguage3D(1);SeisWave::Ui::setParameterDisplayMode(2,0);
+    Workbench app;app.staged.nx=128;app.staged.nz=96;app.staged.sourceZ=18;app.staged.receiverCount=20;app.staged.relief=3;app.staged.duration=.08;app.staged.maxSteps=40;
+    if(!app.apply())throw std::runtime_error(app.error);
+    const auto draw=[&]{runtime.begin();ImGui::SetNextWindowPos({20,30},ImGuiCond_Always);ImGui::SetNextWindowSize({590,700},ImGuiCond_Always);ImGui::Begin("Qp/Qs workflow controls");ImGui::SetNextItemOpen(true,ImGuiCond_Always);app.attenuationControls();ImGui::End();runtime.present();};
+    auto& io=ImGui::GetIO();io.AddFocusEvent(true);draw();draw();
+    const auto click=[&](ImRect rect){const auto at=rect.GetCenter();io.AddMousePosEvent(at.x,at.y);io.AddMouseButtonEvent(0,true);draw();io.AddMouseButtonEvent(0,false);draw();};
+    click(app.attenuationToggleRect);
+    if(!app.staged.attenuation.enabled||app.simulation.parameters().attenuation.enabled)throw std::runtime_error("Q checkbox did not stage a change");
+    click(app.attenuationQpRect);io.AddKeyEvent(ImGuiMod_Ctrl,true);io.AddKeyEvent(ImGuiKey_A,true);draw();io.AddKeyEvent(ImGuiKey_A,false);io.AddKeyEvent(ImGuiMod_Ctrl,false);io.AddInputCharactersUTF8("80");draw();io.AddKeyEvent(ImGuiKey_Enter,true);draw();io.AddKeyEvent(ImGuiKey_Enter,false);draw();
+    if(app.staged.attenuation.qp!=80||!app.apply()||!app.simulation.advance(30,error))throw std::runtime_error("Q input/apply failed: "+app.error+error);
+    const auto snapshot=app.simulation.snapshot(true);if(snapshot.memory.size()!=12||snapshot.syy.empty())throw std::runtime_error("GUI did not run GSLS state");
+    const auto folder=SeisWave::Ui::outputRoot()/"validation/viscoelastic/ui";std::filesystem::create_directories(folder);draw();int width=0,height=0;glfwGetFramebufferSize(runtime.window(),&width,&height);if(!SeisWave::Ui::capture(folder/"parameters.ppm",width,height))throw std::runtime_error("Q screenshot failed");
+    app.staged.layered=true;app.openLayers=true;
+    for(int frame=0;frame<4;++frame){runtime.begin();ImGui::Begin("Q layer workflow");app.modelDialogs();ImGui::End();runtime.present();}
+    const auto* popup=ImGui::FindWindowByName(l("Layered material editor###2DLayerEditor","分层介质编辑###2DLayerEditor"));if(!popup||!popup->Active)throw std::runtime_error("Q layer table did not open");
+    if(!SeisWave::Ui::capture(folder/"layers.ppm",width,height))throw std::runtime_error("Q layer screenshot failed");
+    if(glGetError()!=GL_NO_ERROR)throw std::runtime_error("Q UI OpenGL error");
+    std::cout<<"Q UI PASS: real enable checkbox, keyboard Qp edit, staged/apply, CUDA/CPU advance with Syy/memories and per-layer Q table\n";return 0;
+}
 
 int validateModelWorkflow2D() {
     std::string error;
@@ -2131,20 +2189,11 @@ int runWorkbench2D(bool smoke, bool homeTest) {
         }
         if (homeTest && frame == 3)
             io.AddMouseButtonEvent(0, false);
-        if (app.running) {
-            const auto begin = std::chrono::steady_clock::now();
-            for (int i = 0; i < 8 && !app.simulation.completed(); ++i) {
-                if (!app.simulation.advance(1, app.error)) {
-                    app.running = false;
-                    break;
-                }
-                if (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin)
-                        .count() > 16)
-                    break;
-            }
-            if (app.simulation.completed())
-                app.running = false;
-        }
+        if(!app.simulation.poll(app.error))app.running=false;
+        if(app.running) {
+            app.simulation.queue(8,16);
+            if(app.simulation.completed())app.running=false;
+        }else app.simulation.pause();
         runtime.begin();
         app.toolbar();
         app.controls();

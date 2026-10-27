@@ -1,4 +1,7 @@
 #include "RecordView.hpp"
+#include "WorkspaceTools.hpp"
+#include "SeisCommon/AcquisitionAnalysis.hpp"
+#include <chrono>
 #include "Presentation3D.hpp"
 #include "RecordPalettes3D.hpp"
 #include "implot.h"
@@ -101,7 +104,8 @@ void readableScale(int palette, double range, ImVec2 size) {
         ImGui::SetTooltip("%s: %.4g .. %.4g", tr3D("Normalized amplitude"), -range, range);
 }
 } // namespace
-void RecordView::options(int total) {
+void RecordView::options(const RecordDataView& records) {
+    const int total=static_cast<int>(records.traces.size());
     if (ImGui::Button(label3D("Options"), {-1, 0}))
         ImGui::OpenPopup("RecordOptions3D");
     const auto lo = ImGui::GetItemRectMin(), hi = ImGui::GetItemRectMax();
@@ -160,6 +164,25 @@ void RecordView::options(int total) {
     }
     ImGui::TextWrapped(tr3D(
         "Display gain, AGC and normalization affect preview copies only. Raw CSV samples remain unchanged."));
+    if(ImGui::CollapsingHeader(language3D()?"论文输出与采集评价":"Paper export / acquisition metrics")) {
+        ImGui::InputDouble(language3D()?"统一幅值参考（0=自动）":"Shared amplitude reference (0=auto)",&paperReference_,0,0,"%.5g");
+        const int component=std::clamp(settings.component,0,static_cast<int>(records.components.size()));
+        const auto output=[&](const char* suffix){return outputRoot()/"exports/records"/(std::to_string(std::chrono::system_clock::now().time_since_epoch().count())+suffix);};
+        if(ImGui::Button(language3D()?"导出论文 SVG":"Export paper SVG")) {
+            const auto path=output("_record.svg");std::string error;PaperRecordOptions options;options.amplitudeReference=paperReference_;
+            const auto name=path.generic_u8string();analysisNotice_=writePaperRecordSvg(records,component,path,options,error)?(language3D()?"已导出：":"Exported: ")+std::string(name.begin(),name.end()):error;
+        }
+        ImGui::TextWrapped("%s",language3D()?"原始样本、白底细线、统一幅值；跨工况比较请设置相同参考幅值。":"Raw samples, white background, fine lines and a shared amplitude scale. Use the same reference for case comparisons.");
+        ImGui::InputScalarN(language3D()?"目标波窗 [起,止) s":"Target window [start,end) s",ImGuiDataType_Double,signalWindow_.data(),2,nullptr,nullptr,"%.4f");
+        ImGui::InputScalarN(language3D()?"干扰波窗 [起,止) s":"Interference window [start,end) s",ImGuiDataType_Double,interferenceWindow_.data(),2,nullptr,nullptr,"%.4f");
+        ImGui::InputDouble(language3D()?"到时阈值 / 道峰值":"Arrival threshold / trace peak",&thresholdFraction_,.01,0,"%.3f");
+        if(ImGui::Button(language3D()?"导出逐道评价 CSV":"Export per-trace metrics CSV")) {
+            const auto path=output("_metrics.csv");std::string error;
+            const auto name=path.generic_u8string();analysisNotice_=writeAcquisitionCsv(records,component,{signalWindow_[0],signalWindow_[1]},{interferenceWindow_[0],interferenceWindow_[1]},thresholdFraction_,path,error)?(language3D()?"已导出：":"Exported: ")+std::string(name.begin(),name.end()):error;
+        }
+        ImGui::TextWrapped("%s",language3D()?"能量 / RMS 比对应指定的两个波窗；阈值到时用于辅助比较。评价不使用显示 AGC。":"Energy/RMS ratios compare the two specified windows; threshold times assist comparisons. Display AGC is excluded.");
+        if(!analysisNotice_.empty())ImGui::TextWrapped("%s",analysisNotice_.c_str());
+    }
     if (!(settings == old))
         fit_ = true;
     ImGui::EndPopup();
@@ -357,8 +380,10 @@ void RecordView::single(const RecordDataView &s, int selected) {
 void RecordView::draw(const RecordDataView &s, int &selected, const char *window, bool *open) {
     if (open && !*open)
         return;
-    if (ImGui::Begin(window, open))
+    if (ImGui::Begin(window, open,workspace?workspace->prepare(window):0)) {
+        if(workspace)workspace->tools(window);
         drawContent(s, selected);
+    }
     ImGui::End();
 }
 void RecordView::drawContent(const RecordDataView &s, int &selected) {
@@ -432,7 +457,7 @@ void RecordView::drawContent(const RecordDataView &s, int &selected) {
             ImGui::SetTooltip(tr3D("R%d XYZ: %.1f, %.1f, %.1f m"), selected + 1, p[0], p[1], p[2]);
         }
         ImGui::TableNextColumn();
-        options(total);
+        options(s);
         ImGui::EndTable();
     }
     refresh(s, selected);

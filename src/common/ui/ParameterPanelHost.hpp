@@ -36,7 +36,7 @@ struct ParameterPanelHost {
             ImGui::SetNextWindowPos(savedPosition);ImGui::SetNextWindowSize(savedSize);restoreNext=false;
         }
         const auto* previous=ImGui::FindWindowByName(title);
-        ImGui::SetNextWindowBgAlpha((!previous||previous->Viewport==vp)&&glassBackdropError().empty()?.08f:.985f);
+        ImGui::SetNextWindowBgAlpha(glassQuality3D()>0&&(!previous||previous->Viewport==vp)&&glassBackdropError().empty()?.08f:.985f);
         ImGui::SetNextWindowSizeConstraints({360,std::min(vp->WorkSize.y-12,std::max(420.f,ImGui::GetFontSize()*18+80))},{FLT_MAX,FLT_MAX});
     }
     void tools() {

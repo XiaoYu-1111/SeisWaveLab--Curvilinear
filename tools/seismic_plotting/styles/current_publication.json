@@ -1,0 +1,47 @@
+{
+  "version": "2026-10-27",
+  "colors": {"record": "gray", "model": "turbo", "wavefield": "coolwarm", "dem": "jet", "dispersion": "viridis", "trial_q": "plasma"},
+  "common": {
+    "font_family": ["Times New Roman", "Microsoft YaHei"],
+    "font_size": 14,
+    "title_size": 16,
+    "axes_linewidth": 0.6,
+    "dpi": 260,
+    "formats": ["png", "pdf"],
+    "interpolation": "bilinear",
+    "interpolation_stage": "data",
+    "records": {"component_order": ["Vz", "Vx"], "colorbar_location": "bottom"},
+    "snapshots": {"components": ["Vz"], "colorbar_location": "bottom"},
+    "reference_lines": {"color": "#555b61", "linewidth": 0.65, "alpha": 0.72, "label_size": 11.5}
+  },
+  "profiles": {
+    "publication": {},
+    "jingbian_15_30": {
+      "records": {
+        "modes": ["raw", "rms", "agc"], "layouts": ["component_matrices", "component_pairs"],
+        "velocity_unit": "um/s", "distance_unit": "km",
+        "raw_limit_m_s": 0.000125, "agc_window_s": 0.3, "agc_floor": 0.01,
+        "agc_clip": 3, "agc_edge": "truncated", "agc_odd_window": false,
+        "pair_groups": [
+          {"id": "no_lvl", "cases": ["M00", "M10"], "raw_limit_m_s": 0.00001},
+          {"id": "lvl", "cases": ["M01", "M11"], "raw_limit_m_s": 0.000125}
+        ]
+      },
+      "models": {"field": "Vp", "limits_m_s": [1000, 4200], "reference_depths_m": [1000, 2000]},
+      "shallow_models": {"depth_coordinate": "eta", "reference_depths_m": []},
+      "snapshots": {
+        "times_s": [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3],
+        "vmax_m_s": 0.00002, "linthresh_m_s": 0.0000002,
+        "linthresh_fraction": 0.01, "scale_scope": "fixed",
+        "reference_depths_m": [1000, 2000], "depth_coordinate": "physical",
+        "relative_x": false, "crop_m": [0, 10000, -300, 4000],
+        "stride_x": 2, "stride_z": 2, "equal_aspect": false,
+        "display_velocity_unit": "um/s"
+      }
+    },
+    "surface_wave": {
+      "records": {"agc_window_s": 0.3, "agc_floor": 0.03, "agc_clip": 3, "agc_edge": "reflect", "agc_odd_window": true},
+      "snapshots": {"scale_scope": "global", "display_velocity_unit": "m/s"}
+    }
+  }
+}

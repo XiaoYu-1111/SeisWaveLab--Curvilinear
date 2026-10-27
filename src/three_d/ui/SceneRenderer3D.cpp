@@ -61,6 +61,8 @@ bool SceneRenderer3D::initialize(const std::filesystem::path& shaders,std::strin
 
 bool SceneRenderer3D::render(const ISimulationBackend3D& s,const DisplayFrame3D& frame,const DisplayFrame3D& material,const VisualSettings3D& v,const SliceIndices3D& slice,int width,int height,std::string& error) {
     width=std::clamp(width,16,4096);height=std::clamp(height,16,4096);
+    const auto geometry=s.grid().coordinates.data();const std::array<int,3> indices{slice.x,slice.y,slice.z};
+    if(cached_&&width==width_&&height==height_&&geometry_==geometry&&cachedVisuals_==v&&cachedCamera_==cameraState()&&cachedSlices_==indices&&waveRevision_==frame.revision&&materialRevision_==material.revision){++hits_;return true;}
     if(width!=width_ || height!=height_) {
         if(texture_) { glDeleteTextures(1,&texture_);glDeleteFramebuffers(1,&framebuffer_);glDeleteFramebuffers(1,&msaaFramebuffer_);glDeleteRenderbuffers(1,&colorBuffer_);glDeleteRenderbuffers(1,&depthBuffer_); }
         width_=width;height_=height;
@@ -159,11 +161,13 @@ bool SceneRenderer3D::render(const ISimulationBackend3D& s,const DisplayFrame3D&
     glBindFramebuffer(GL_READ_FRAMEBUFFER,msaaFramebuffer_);glBindFramebuffer(GL_DRAW_FRAMEBUFFER,framebuffer_);
     glBlitFramebuffer(0,0,width,height,0,0,width,height,GL_COLOR_BUFFER_BIT,GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER,0);glBindVertexArray(0);glUseProgram(0);glDisable(GL_DEPTH_TEST);glDisable(GL_PROGRAM_POINT_SIZE);
+    cached_=true;geometry_=geometry;cachedVisuals_=v;cachedCamera_=cameraState();cachedSlices_=indices;waveRevision_=frame.revision;materialRevision_=material.revision;++builds_;
     return true;
 }
 
 // Releases render targets while the owning OpenGL context is still current.
 void SceneRenderer3D::shutdown() {
+    invalidate();
     if(texture_)glDeleteTextures(1,&texture_);if(framebuffer_)glDeleteFramebuffers(1,&framebuffer_);if(msaaFramebuffer_)glDeleteFramebuffers(1,&msaaFramebuffer_);
     if(colorBuffer_)glDeleteRenderbuffers(1,&colorBuffer_);if(depthBuffer_)glDeleteRenderbuffers(1,&depthBuffer_);
     if(vbo_)glDeleteBuffers(1,&vbo_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);

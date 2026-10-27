@@ -12,7 +12,7 @@ class CudaEngine {
     void diagnostics(Diagnostics &);
     void sample(std::vector<Receiver> &);
     void frame(int, std::vector<float> &) const;
-    Snapshot snapshot() const;
+    Snapshot snapshot(bool includeMemories=false) const;
 
   private:
     struct Impl;

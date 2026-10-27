@@ -32,6 +32,19 @@ bool verifyThemePanels3D(Workbench3D& app,SeisWave::Ui::AppRuntime& host) {
         if(app.simulation->revision()!=revision||app.simulation->currentStep()!=step||app.simulation->parameters()!=parameters||app.simulation->grid().coordinates.data()!=coordinates){app.error="Appearance changed the solver.";return false;}
         report<<themeKey3D(theme)<<'\t'<<mode<<'\t'<<SeisWave::Ui::glassBackdropPasses()-passes<<"\tPASS\n";
     }
-    std::cout<<"Theme panels PASS: 12 themes x 3 modes, live frosted GL passes, independent navigation, maximize/restore, unchanged solver and preference migration\n";
+    SeisWave::Ui::setParameterDisplayMode(3,2);
+    for(int quality:{0,2,1}) {
+        setGlassQuality3D(quality);const auto draws=SeisWave::Ui::glassBackdropPasses(),refreshes=SeisWave::Ui::glassBackdropRefreshes();
+        for(int frame=0;frame<12;++frame){
+            glfwPollEvents();ImGui_ImplOpenGL3_NewFrame();ImGui_ImplGlfw_NewFrame();ImGui::NewFrame();
+            app.toolbar();app.docking();app.controls();app.spatialWindow();app.floatingControls();ImGui::Render();
+            int w=0,h=0;glfwGetFramebufferSize(host.window(),&w,&h);glViewport(0,0,w,h);glClear(GL_COLOR_BUFFER_BIT);ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());host.renderPlatformWindows();
+            if(glGetError()!=GL_NO_ERROR||!SeisWave::Ui::glassBackdropError().empty()){app.error="Material quality GL validation failed.";return false;}glfwSwapBuffers(host.window());
+        }
+        const int rendered=SeisWave::Ui::glassBackdropPasses()-draws,updated=SeisWave::Ui::glassBackdropRefreshes()-refreshes;
+        if(quality==0?(rendered!=0||updated!=0):(rendered<1||updated<1||updated>=rendered)){app.error="Glass quality/cache did not reduce refresh work.";return false;}
+        report<<"quality_"<<quality<<"\t2\t"<<rendered<<"\tPASS_refreshes_"<<updated<<'\n';
+    }
+    std::cout<<"Theme panels PASS: 12 themes x 3 modes, quality 0/1/2 and cached blur, live frosted GL passes, independent navigation, maximize/restore, unchanged solver and preference migration\n";
     return true;
 }

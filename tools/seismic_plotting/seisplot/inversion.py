@@ -4,10 +4,11 @@ import numpy as np
 from matplotlib import pyplot as plt
 from .core import setup,resolve,save,axes_grid,write_rows,PALETTE
 from .io import table,numeric_csv
+from .publication import resolve_style
 
 class InversionStudy:
     def __init__(self,cfg):
-        self.cfg=cfg;self.out=setup(cfg);self.truth=np.asarray(cfg['truth']['vs_m_s'],float)
+        cfg=resolve_style(cfg);self.cfg=cfg;self.out=setup(cfg);self.truth=np.asarray(cfg['truth']['vs_m_s'],float)
         self.input_dir=resolve(cfg.get('input_dir','.'))
         self.true_h=np.asarray(cfg['truth']['thickness_m'],float);self.initial=np.asarray(cfg['initial_vs_m_s'],float)
         self.free=np.asarray(cfg['free_vs'],bool);self.n=len(self.truth)

@@ -2,6 +2,7 @@
 #include "SeisCommon/ComputeDevices.hpp"
 #include "SurfaceProfile.hpp"
 #include "SeisCommon/SourceMechanism.hpp"
+#include "SeisCommon/Gsls.hpp"
 #include <array>
 #include <filesystem>
 #include <memory>
@@ -16,6 +17,7 @@ inline constexpr int maxTimeSteps = 200000;
 inline constexpr int maxSpongeCells = 512;
 struct Layer {
     double thickness{}, vp{}, vs{}, density{};
+    double qp{100},qs{60};
     bool operator==(const Layer &) const = default;
 };
 struct Parameters {
@@ -32,6 +34,7 @@ struct Parameters {
     int receiverStart{2}, receiverCount{96}, receiverStride{2}, receiverDepth{1};
     double sampleIntervalMs{}; // 0 = each accepted step; otherwise uniform output times, linearly interpolated.
     bool layered{};
+    SeisWave::Rheology::Settings attenuation;
     bool importedSurface{};
     double surfaceDatum{}; // z = datum - elevation; depth is positive downward.
     SurfaceSamples surfaceSamples;
@@ -43,6 +46,7 @@ struct Grid {
     double h{}, flattenDepth{}, maxMetric{}, minJacobian{}, maxEdge{};
     std::vector<std::array<double, 2>> coordinates, normals;
     std::vector<double> metricA, metricB, jacobian, vp, vs, density;
+    std::vector<double> qp,qs;
     std::size_t index(int i, int k) const {
         return i + static_cast<std::size_t>(nx) * k;
     }
@@ -56,9 +60,13 @@ struct Diagnostics {
     double energy{}, peakEnergy{}, maxVelocity{}, tractionRelative{}, ppw{}, waveDt{}, dampingDt{},
         sourceDt{}, initializationMs{}, totalStepMs{}, lastStepMs{};
     bool finite{true};
+    double relaxationDt{},maxRelativeQError{};
+    int stateFields{5};
 };
 struct Snapshot {
     std::array<std::vector<double>, 5> fields;
+    std::vector<double> syy;
+    std::vector<std::vector<double>> memory;
 }; // Vx,Vz,Sxx,Szz,Sxz; padded storage.
 class Simulation {
   public:
@@ -81,7 +89,7 @@ class Simulation {
     const std::vector<Receiver> &receivers() const;
     BackendInfo3D backend() const;
     bool readFrame(int component, std::vector<float> &, std::string &) const;
-    Snapshot snapshot() const;
+    Snapshot snapshot(bool includeMemories=false) const;
 
   private:
     struct Impl;

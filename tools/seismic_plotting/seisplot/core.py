@@ -5,6 +5,7 @@ from scipy.ndimage import uniform_filter1d
 from matplotlib import pyplot as plt, font_manager
 from matplotlib.colors import SymLogNorm
 from .io import metadata,read_segy,read_vts,table
+from .publication import resolve_style,velocity_scale,reference_lines
 
 REPO=Path(__file__).resolve().parents[3]
 WORKSPACE=REPO.parent
@@ -14,7 +15,7 @@ def resolve(path,base=WORKSPACE):
     p=Path(path).expanduser();return p.resolve() if p.is_absolute() else (Path(base)/p).resolve()
 
 def load_config(path):
-    return json.loads(Path(path).read_text(encoding='utf-8-sig'))
+    return resolve_style(json.loads(Path(path).read_text(encoding='utf-8-sig')))
 
 def setup(cfg):
     """All generated artifacts must stay in this checkout's outer out directory."""
@@ -26,13 +27,15 @@ def setup(cfg):
         for case in dataset['cases']:inputs.append(resolve(case.get('folder','.'),resolve(dataset['root'])))
     if any(root.is_relative_to(p) for p in inputs):raise ValueError('output_dir must not be inside an input case/inversion directory')
     for p in ['figures','data','cache']: (root/p).mkdir(parents=True,exist_ok=True)
-    family=cfg.get('font_family','Microsoft YaHei')
-    if family not in {f.name for f in font_manager.fontManager.ttflist}:
+    requested=cfg.get('font_family',['Times New Roman','Microsoft YaHei']);requested=[requested] if isinstance(requested,str) else requested
+    family=[f for f in requested if f in {v.name for v in font_manager.fontManager.ttflist}]
+    if not family:
         candidates=['Noto Sans CJK SC','SimHei','DejaVu Sans']
-        family=next((x for x in candidates if x in {f.name for f in font_manager.fontManager.ttflist}),'DejaVu Sans')
+        family=[next((x for x in candidates if x in {f.name for f in font_manager.fontManager.ttflist}),'DejaVu Sans')]
         warnings.warn(f'Requested font unavailable; using {family}')
-    plt.rcParams.update({'font.family':family,'font.size':cfg.get('font_size',12),'axes.unicode_minus':False,
-                         'axes.spines.top':False,'axes.spines.right':False,'savefig.facecolor':'white'})
+    plt.rcParams.update({'font.family':family,'font.size':cfg.get('font_size',14),'axes.titlesize':cfg.get('title_size',16),'axes.unicode_minus':False,
+                         'axes.linewidth':cfg.get('axes_linewidth',.6),'axes.spines.top':True,'axes.spines.right':True,
+                         'xtick.direction':'in','ytick.direction':'in','savefig.facecolor':'white'})
     (root/'data/config_used.json').write_text(json.dumps(cfg,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
     return root
 
@@ -85,17 +88,20 @@ def axes_grid(n,cols=2,height=3.5):
     for ax in axes.flat[n:]:ax.set_visible(False)
     return fig,list(axes.flat[:n])
 
-def gather_image(ax,g,a,title,cfg,limit,relative=False):
+def gather_image(ax,g,a,title,cfg,limit,relative=False,mode='raw'):
+    opt=cfg.get('records',{});unit=opt.get('distance_unit','m');distance_scale=.001 if unit=='km' else 1.
+    if unit not in ['m','km']:raise ValueError('distance_unit must be m or km')
+    scale,_=velocity_scale(opt.get('velocity_unit','m/s')) if mode=='raw' else (1.,'RMS')
     xx=g.offset if relative else g.x
-    order=np.argsort(xx);xx=xx[order];a=a[order]
+    order=np.argsort(xx);xx=xx[order]*distance_scale;a=a[order]*scale;limit=limit*scale
     if len(xx)>2 and not np.allclose(np.diff(xx),np.median(np.diff(xx))):
         # pcolormesh respects irregular receiver positions; imshow would mislabel them.
         im=ax.pcolormesh(xx,g.t,a.T,shading='auto',cmap=cfg.get('record_cmap','gray'),vmin=-limit,vmax=limit,rasterized=True)
     else:
         dx=np.median(np.diff(xx)) if len(xx)>1 else 1
         im=ax.imshow(a.T,extent=(xx[0]-dx/2,xx[-1]+dx/2,g.t[-1]+g.dt/2,-g.dt/2),aspect='auto',
-                     cmap=cfg.get('record_cmap','gray'),vmin=-limit,vmax=limit,interpolation=cfg.get('interpolation','bilinear'))
-    ax.set(xlabel='偏移距 / m' if relative else '接收点 X / m',ylabel='时间 / s',title=title,ylim=(g.t[-1],0))
+                     cmap=cfg.get('record_cmap','gray'),vmin=-limit,vmax=limit,interpolation=cfg.get('interpolation','bilinear'),interpolation_stage=cfg.get('interpolation_stage','data'))
+    ax.set(xlabel=('偏移距 / ' if relative else '接收点 X / ')+unit,ylabel='时间 / s',title=title,ylim=(g.t[-1],0))
     return im
 
 def grid_data(case,field,out,options,snapshot=None):
@@ -124,6 +130,7 @@ def grid_data(case,field,out,options,snapshot=None):
     return x,z,a,values
 
 def spatial(ax,x,z,a,title,cmap,norm=None,limits=None,options=None):
+    options=options or {}
     im=ax.pcolormesh(x,z,a,shading='auto',cmap=cmap,norm=norm,
                      vmin=limits[0] if limits else None,vmax=limits[1] if limits else None,rasterized=True)
     ax.set(title=title,xlabel='相对震源 X / m' if options.get('relative_x') else 'X / m',
@@ -131,6 +138,7 @@ def spatial(ax,x,z,a,title,cmap,norm=None,limits=None,options=None):
     ax.invert_yaxis();ax.set_aspect('equal' if options.get('equal_aspect',True) else 'auto')
     if options.get('crop_m'):
         x0,x1,z0,z1=options['crop_m'];ax.set(xlim=(x0,x1),ylim=(z1,z0))
+    reference_lines(ax,options.get('reference_depths_m',[]),options)
     return im
 
 def symlog(vmax,fraction):
@@ -138,13 +146,17 @@ def symlog(vmax,fraction):
     if not 0<fraction<1:raise ValueError('linthresh_fraction must be in (0,1)')
     return SymLogNorm(linthresh=vmax*fraction,vmin=-vmax,vmax=vmax,base=10)
 
-def wave_colorbar(fig,im,axes):
-    m=im.norm.vmax;ticks=np.array([-1,-.1,-.01,0,.01,.1,1])*m
-    cb=fig.colorbar(im,ax=axes,label='速度分量 / (m/s)，SymLog',shrink=.75,ticks=ticks)
-    cb.ax.set_yticklabels(['0' if v==0 else f'{v:.1e}' for v in ticks])
+def wave_colorbar(fig,im,axes,options=None):
+    from matplotlib.ticker import FuncFormatter
+    options=options or {};m=im.norm.vmax;core=im.norm.linthresh
+    ticks=sorted(set([-m,-.1*m,-core,0,core,.1*m,m]));scale,unit=velocity_scale(options.get('display_velocity_unit','m/s'))
+    cb=fig.colorbar(im,ax=axes,label=f'速度分量 / ({unit})，对称对数；线性核±{core*scale:g}',shrink=.75,ticks=ticks,
+        location=options.get('colorbar_location','bottom'),aspect=75,pad=.06,extend='both')
+    cb.formatter=FuncFormatter(lambda v,pos:f'{v*scale:g}');cb.update_ticks();return cb
 
 def snapshot_rows(case,targets=None):
     rows=table(case['snapshot_index']);found=[]
+    if not rows:raise ValueError(f'Empty snapshot index: {case["snapshot_index"]}')
     for target in targets if targets is not None else [float(r['target_time_s']) for r in rows]:
         row=min(rows,key=lambda r:abs(float(r['target_time_s'])-target))
         if abs(float(row['target_time_s'])-target)>1e-6:raise ValueError(f'Snapshot target {target}s absent in {case["snapshot_index"]}')

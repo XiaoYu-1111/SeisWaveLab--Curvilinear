@@ -158,7 +158,7 @@ Route runHomeScreen(bool smoke, int choice) {
             glfwSetWindowSize(runtime.window(), 2560, 1494);
             setInterfaceFontSize(20);
             setLanguage3D(1);
-            applyTheme3D(9);
+            applyTheme3D(11);
         }
         if (smoke && !choice && frame == 48) {
             glfwSetWindowSize(runtime.window(), 960, 640);

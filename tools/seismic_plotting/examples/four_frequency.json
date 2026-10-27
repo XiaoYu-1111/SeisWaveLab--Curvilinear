@@ -1,14 +1,10 @@
 {
+  "style_profile": "jingbian_15_30",
   "output_dir": "out/replots/four_frequency",
-  "font_family": "Microsoft YaHei",
-  "font_size": 12,
-  "dpi": 180,
   "formats": [
     "png",
     "pdf"
   ],
-  "record_cmap": "gray",
-  "interpolation": "bilinear",
   "datasets": [
     {
       "label": "15Hz",
@@ -64,16 +60,7 @@
     }
   ],
   "records": {
-    "modes": [
-      "raw",
-      "rms",
-      "agc"
-    ],
-    "clip_quantile": 0.997,
-    "agc_window_s": 0.3,
-    "agc_floor": 0.01,
-    "agc_clip": 3,
-    "agc_edge": "truncated"
+    "clip_quantile": 0.997
   },
   "analysis": {
     "exclude_edge_traces": 3,
@@ -85,15 +72,9 @@
     "welch_samples": 2048
   },
   "models": {
-    "field": "Vp",
-    "cmap": "viridis",
-    "limits_m_s": [
-      1000,
-      4200
-    ],
-    "stride_x": 5,
+    "stride_x": 4,
     "stride_z": 4,
-    "equal_aspect": true
+    "equal_aspect": false
   },
   "shallow_models": {
     "stride_x": 1,
@@ -104,28 +85,12 @@
       5200,
       0,
       160
-    ]
+    ],
+    "equal_aspect": false
   },
   "snapshots": {
     "enabled": true,
-    "components": [
-      "Vz"
-    ],
-    "times_s": [
-      0.5,
-      1.0,
-      2.0
-    ],
-    "stride_x": 5,
-    "stride_z": 4,
-    "cmap": "seismic",
-    "linthresh_fraction": 0.01,
-    "scale_scope": "global",
-    "equal_aspect": true,
-    "reference_depths_m": [
-      1000,
-      2000
-    ]
+    "individual": false
   },
   "reflection_reference": {
     "enabled": true,

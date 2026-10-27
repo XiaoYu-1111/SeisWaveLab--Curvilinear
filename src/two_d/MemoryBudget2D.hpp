@@ -18,11 +18,13 @@ inline MemoryBudget memoryBudget(const Parameters &p, BackendKind3D kind) {
     // Before geometry/dt are available, per-step output must reserve against
     // the accepted-step ceiling, including full-duration (maxSteps == 0) runs.
     const double records = p.receiverCount * samples * 2 * sizeof(double);
+    const double qExtra=p.attenuation.enabled?4.0+2.0*p.attenuation.mechanisms:0; // Qp/Qs, reference moduli and branch strengths.
+    const double stateExtra=p.attenuation.enabled?7.0*(1+4*p.attenuation.mechanisms):0;
     // CUDA keeps geometry/material/source arrays on the host (14 + gradients
     // doubles/node), but all 35 RK field arrays live only on the device. Allow
     // four extra host doubles/node for staging, display and allocation overhead.
     // CPU retains the previous conservative 60 + gradients budget.
-    return {count * ((cuda ? 18. : 60.) + gradients) * sizeof(double) + records,
-            cuda ? count * (48. + gradients) * sizeof(double) : 0};
+    return {count * ((cuda ? 18. : 60.) + gradients+qExtra+(cuda?0:stateExtra)) * sizeof(double) + records,
+            cuda ? count * (48. + gradients+(p.attenuation.enabled?2.0*p.attenuation.mechanisms:0)+stateExtra) * sizeof(double) : 0};
 }
 } // namespace Seis2D::Curvilinear::Detail

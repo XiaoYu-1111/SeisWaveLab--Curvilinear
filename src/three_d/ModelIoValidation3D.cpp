@@ -155,11 +155,38 @@ int main() {
                 std::ofstream(root / "truncated.vts") << read(path).substr(0, 1024);
                 check(!readModelVts3D(root / "truncated.vts", doc, error), "Truncated model accepted");
             }
+        for(int kind=0;kind<(cuda?2:1);++kind) {
+            auto terrain=p;terrain.source.kind=SeisWave::SourceKind::DirectionalForce;
+            auto& dem=terrain.surfaceGrid;dem.nx=513;dem.ny=257;dem.spacing=.25;
+            dem.originX=19300000.125;dem.originY=4146000.75;dem.datum=1500;
+            for(int j=0;j<dem.ny;++j)for(int i=0;i<dem.nx;++i)dem.elevations.push_back(1500+.4*std::sin(i*.02)*std::cos(j*.03));
+            auto a=createSimulationBackend3D(static_cast<BackendKind3D>(kind),error);
+            check(a&&a->initialize(terrain,error,{1}),error);check(a->advance(2,error),error);
+            const auto file=root/"embedded-dem.vts";check(writeModelVts3D(*a,file,{1},error),error);
+            ModelDocument3D loaded;check(readModelVts3D(file,loaded,error),error);
+            check(loaded.parameters==terrain,"Embedded original DEM/parameters differ");
+            auto b=createSimulationBackend3D(loaded.backend,error);
+            check(b&&b->initialize(loaded.parameters,error,loaded.compute),error);
+            check(b->grid().coordinates==a->grid().coordinates&&b->dt()==a->dt(),"Embedded DEM geometry/dt reproduction differs");
+            check(b->advance(2,error),error);
+            check(a->snapshot().vz==b->snapshot().vz,"Embedded DEM wavefield reproduction differs");
+            auto damaged=read(file);auto at=damaged.find("Name=\"SurfaceGridElevations\"");
+            damaged[damaged.find('>',at)+1]='2';std::ofstream(root/"bad-dem.vts")<<damaged;
+            const auto before=loaded.parameters;
+            check(!readModelVts3D(root/"bad-dem.vts",loaded,error)&&loaded.parameters==before,"Corrupt embedded DEM changed loaded project");
+        }
+        {
+            SimulationParameters wide;wide.nx=310;wide.ny=8;wide.nz=12;wide.topographyAmplitude=0;wide.maxSteps=2;
+            wide.receiverArray={ReceiverArrayKind3D::XLine,300,3,1,4,1,1,1};
+            auto s=createSimulationBackend3D(BackendKind3D::Cpu,error);check(s&&s->initialize(wide,error,{1}),error);
+            check(writeModelVts3D(*s,root/"wide-grid.vts",{1},error),error);
+            ModelDocument3D loaded;check(readModelVts3D(root/"wide-grid.vts",loaded,error)&&loaded.parameters==wide,"Dynamic-axis receiver geometry failed roundtrip");
+        }
         std::ofstream(root / "summary.txt")
             << "PASS CPU" << (cuda ? " and CUDA" : "")
             << ": uniform / three layer depth conventions, UTF-8, full parameters, overwrite, t=0 restart, "
                "exact geometry/dt/wavefield, selected Float64 components, corruption and truncation "
-               "rejection.\n";
+               "rejection; schema-2 embedded 513x257 DEM, exact reconstructed waves, corrupt DEM rejection and receiver indices above 299.\n";
         std::cout << read(root / "summary.txt");
         return 0;
     } catch (const std::exception &ex) {

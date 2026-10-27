@@ -1,14 +1,10 @@
 {
+  "style_profile": "publication",
   "output_dir": "out/replots/inversion",
-  "font_family": "Microsoft YaHei",
-  "font_size": 12,
-  "dpi": 180,
   "formats": [
     "png",
     "pdf"
   ],
-  "record_cmap": "gray",
-  "interpolation": "bilinear",
   "input_dir": "out/surface_wave_masw/analysis_20261024/inversion",
   "results_csv": [
     "results.csv",

@@ -381,5 +381,6 @@ CMakeUserPresets.json
 *.lib
 *.exp
 *.vts
+!resources/examples/terrain3d/surface_grid_400x288_h25m.vts
 *.ppm
 *.zip

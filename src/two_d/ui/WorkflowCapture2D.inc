@@ -3,7 +3,7 @@ int captureWorkflow2D() {
     SeisWave::Ui::AppRuntime runtime;std::string error;
     if(!runtime.open("SeisWave Lab · Curvilinear | 2D P-SV | CPU / CUDA",true,error))throw std::runtime_error(error);
     glfwSetWindowSize(runtime.window(),2560,1494);glfwPollEvents();
-    setLanguage3D(1);applyTheme3D(9);SeisWave::Ui::setInterfaceFontSize(20);
+    setLanguage3D(1);applyTheme3D(11);SeisWave::Ui::setParameterDisplayMode(2,0);SeisWave::Ui::setInterfaceFontSize(20);
     Workbench app;app.staged.nx=app.staged.nz=200;app.staged.spacing=2.5;app.staged.frequency=30;
     app.staged.relief=5;app.staged.wavelength=300;app.staged.sourceX=100;app.staged.sourceZ=40;
     app.staged.duration=.25;app.staged.maxSteps=0;app.staged.sampleIntervalMs=.5;
@@ -11,16 +11,31 @@ int captureWorkflow2D() {
     if(!app.apply())throw std::runtime_error(app.error);
     const auto output=SeisWave::Ui::outputRoot()/"screenshots/two-d-workflow";std::filesystem::create_directories(output);
     std::ofstream manifest(output/"capture.tsv");
-    manifest<<"image\twidth\theight\tstep\ttime_s\tdt_s\trecord_dt_s\tnx\tnz\tspacing_m\tf0_hz\tbackend\n"<<std::setprecision(17);
+    manifest<<"image\twidth\theight\tstep\ttime_s\tdt_s\trecord_dt_s\tnx\tnz\tspacing_m\tf0_hz\tbackend\ttheme\tcapture_date\trecord_height\trecord_palette\trecord_style\trecord_gain\n"<<std::setprecision(17);
     const auto draw=[&](){runtime.begin();app.toolbar();app.controls();app.modelDialogs();app.activeParameters();app.wavefield();app.records();app.shortcuts();runtime.present();};
+    bool publicationLayoutReady=false;
     const auto shot=[&](const char* name,int category){
         app.category=category;
+        if(category!=4){app.groupsExpanded=true;++app.groupEpoch;}
         const auto step=app.simulation.step();
+        draw();
+        // Reorient the existing wave/record split; retain valid dock window ownership.
+        if(!publicationLayoutReady){
+            auto* pane=ImGui::FindWindowByName(label("Receiver records","接收记录").c_str());
+            if(!pane||!pane->DockNode||!pane->DockNode->ParentNode)throw std::runtime_error("Publication dock layout unavailable");
+            auto* node=pane->DockNode;auto* parent=node->ParentNode;
+            auto* sibling=parent->ChildNodes[parent->ChildNodes[0]==node?1:0];
+            parent->SplitAxis=ImGuiAxis_X;
+            ImGui::DockBuilderSetNodeSize(node->ID,{parent->Size.x*.51f,parent->Size.y});
+            ImGui::DockBuilderSetNodeSize(sibling->ID,{parent->Size.x*.49f,parent->Size.y});
+            app.fit=true;publicationLayoutReady=true;
+        }
         for(int i=0;i<6;++i)draw();
+        if(step>0&&app.recordHeight<550)throw std::runtime_error("Record pane is too short for full-size publication");
         int w{},h{};glfwGetFramebufferSize(runtime.window(),&w,&h);
         if(w!=2560||h!=1494||!app.domainVisible||!app.error.empty()||app.simulation.step()!=step||!SeisWave::Ui::capture(output/(std::string(name)+".ppm"),w,h))throw std::runtime_error("Full-size 2D capture failed: "+app.error);
         const auto &p=app.simulation.parameters();
-        manifest<<name<<'\t'<<w<<'\t'<<h<<'\t'<<step<<'\t'<<step*app.simulation.dt()<<'\t'<<app.simulation.dt()<<'\t'<<app.simulation.recordDt()<<'\t'<<p.nx<<'\t'<<p.nz<<'\t'<<p.spacing<<'\t'<<p.frequency<<'\t'<<(app.selectedBackend?"CUDA":"CPU")<<'\n';
+        manifest<<name<<'\t'<<w<<'\t'<<h<<'\t'<<step<<'\t'<<step*app.simulation.dt()<<'\t'<<app.simulation.dt()<<'\t'<<app.simulation.recordDt()<<'\t'<<p.nx<<'\t'<<p.nz<<'\t'<<p.spacing<<'\t'<<p.frequency<<'\t'<<(app.selectedBackend?"CUDA":"CPU")<<"\tRed Yellow Orange\t2026-10-27\t"<<app.recordHeight<<'\t'<<app.recordView.settings.palette<<'\t'<<app.recordView.settings.style<<'\t'<<app.recordView.settings.gain<<'\n';
         std::cout<<"Captured 2D "<<name<<" | "<<w<<'x'<<h<<" | "<<step<<" steps\n"<<std::flush;
     };
     const auto exportGroup=[&](const char* title){

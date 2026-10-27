@@ -19,10 +19,10 @@
 namespace Seis2D::Curvilinear {
 namespace {
 constexpr double pi = 3.14159265358979323846;
-using State = std::array<std::vector<double>, 5>;
+using State = std::array<std::vector<double>, Point::maxFields>;
 Point::Fields view(State &state) {
     Point::Fields w;
-    for (int f = 0; f < 5; ++f)
+    for (int f = 0; f < Point::maxFields; ++f)
         w.f[f] = state[f].data();
     return w;
 }
@@ -42,6 +42,7 @@ struct Simulation::Impl {
     State fields[7];
     std::vector<double> lambda, mu, source, damping;
     std::array<std::vector<double>, 2> sourceGradient;
+    std::array<std::vector<double>,3> deltaP,deltaS;
     Point::Mesh mesh;
     std::vector<Receiver> receivers;
     std::vector<Receiver> probes;
@@ -77,7 +78,7 @@ struct Simulation::Impl {
 #ifdef SEIS3D_HAS_OPENMP
 #pragma omp parallel for schedule(static) num_threads(threads) if (threads > 1 && p.nx * p.nz >= 16384)
 #endif
-        for (int f = 0; f < 5; ++f)
+        for (int f = 0; f < mesh.fieldCount; ++f)
             for (std::size_t q = 0; q < mesh.count; ++q)
                 out[f][q] = fields[1][f][q] + (final ? dt *
                                                            (fields[2][f][q] + 2 * fields[3][f][q] +
@@ -99,7 +100,7 @@ struct Simulation::Impl {
         for (int k = ghost; k < grid.nz - ghost; ++k)
             for (int i = ghost; i < grid.nx - ghost; ++i) {
                 const auto q = grid.index(i, k);
-                for (int f = 0; f < 5; ++f)
+                for (int f = 0; f < mesh.fieldCount; ++f)
                     diagnostics.finite &= std::isfinite(w.f[f][q]);
                 diagnostics.energy += Point::energy(w, mesh, q);
                 diagnostics.maxVelocity = std::max(diagnostics.maxVelocity, Point::value(w, mesh, q, 2));
@@ -202,6 +203,13 @@ bool Simulation::initialize(const Parameters &p, std::string &error, BackendKind
                         "Invalid layer thickness or material.");
             }
         }
+        if(!SeisWave::Rheology::validateSettings(p.attenuation,error))throw std::runtime_error(error);
+        std::vector<SeisWave::Rheology::Material> rheology;
+        if(p.attenuation.enabled){
+            const auto fit=[&](double vp,double vs,double rho,double qp,double qs){SeisWave::Rheology::Material m;if(!SeisWave::Rheology::fitMaterial(vp,vs,rho,qp,qs,p.attenuation,m,error))throw std::runtime_error(error);rheology.push_back(m);};
+            if(p.layered)for(const auto& l:p.layers)fit(l.vp,l.vs,l.density,l.qp,l.qs);
+            else fit(p.vp,p.vs,p.density,p.attenuation.qp,p.attenuation.qs);
+        }
         const auto available = Seis3D::Curvilinear::queryBackend3D(kind, settings.cudaDevice);
         require(available.available, available.description.c_str());
         // Applying an unchanged configuration only clears the wavefield and
@@ -286,6 +294,7 @@ bool Simulation::initialize(const Parameters &p, std::string &error, BackendKind
             v->assign(count, 0);
         g.coordinates.resize(count);
         g.normals.resize(count);
+        if(p.attenuation.enabled){g.qp.resize(count);g.qs.resize(count);for(int l=0;l<p.attenuation.mechanisms;++l){s.deltaP[l].resize(count);s.deltaS[l].resize(count);}}
         g.minJacobian = std::numeric_limits<double>::max();
         double maxVp = 0, minVs = std::numeric_limits<double>::max(), maxSigma = 0;
         for (int k = 0; k < g.nz; ++k)
@@ -307,6 +316,7 @@ bool Simulation::initialize(const Parameters &p, std::string &error, BackendKind
                 const double n = std::hypot(zx, 1.0);
                 g.normals[q] = {-zx / n, 1 / n};
                 double vp = p.vp, vs = p.vs, rho = p.density;
+                std::size_t materialIndex=0;
                 if (p.layered) {
                     double boundary = 0;
                     for (std::size_t l = 0; l < p.layers.size(); ++l) {
@@ -316,6 +326,7 @@ bool Simulation::initialize(const Parameters &p, std::string &error, BackendKind
                             vp = layer.vp;
                             vs = layer.vs;
                             rho = layer.density;
+                            materialIndex=l;
                             break;
                         }
                     }
@@ -325,12 +336,18 @@ bool Simulation::initialize(const Parameters &p, std::string &error, BackendKind
                 g.density[q] = rho;
                 s.mu[q] = rho * vs * vs;
                 s.lambda[q] = rho * vp * vp - 2 * s.mu[q];
+                double speedMax=vp,speedMin=vs;
+                if(p.attenuation.enabled){const auto& m=rheology[materialIndex];s.mu[q]=m.sUnrelaxed;s.lambda[q]=m.pUnrelaxed-2*m.sUnrelaxed;
+                    g.qp[q]=p.layered?p.layers[materialIndex].qp:p.attenuation.qp;g.qs[q]=p.layered?p.layers[materialIndex].qs:p.attenuation.qs;
+                    for(int l=0;l<m.mechanisms;++l){s.deltaP[l][q]=m.deltaP[l];s.deltaS[l][q]=m.deltaS[l];}
+                    speedMax=std::sqrt(m.pUnrelaxed/rho);speedMin=std::sqrt(m.sRelaxed/rho);
+                }
                 if (i >= ghost && i < g.nx - ghost && k >= ghost && k < g.nz - ghost) {
                     g.minJacobian = std::min(g.minJacobian, j);
                     g.maxMetric = std::max(g.maxMetric, std::sqrt(1 + g.metricA[q] * g.metricA[q] +
                                                                   g.metricB[q] * g.metricB[q]));
-                    maxVp = std::max(maxVp, vp);
-                    minVs = std::min(minVs, vs);
+                    maxVp = std::max(maxVp, speedMax);
+                    minVs = std::min(minVs, speedMin);
                 }
             }
         for (int k = 0; k < p.nz; ++k)
@@ -382,7 +399,10 @@ bool Simulation::initialize(const Parameters &p, std::string &error, BackendKind
         d.waveDt = p.cfl * p.spacing / (maxVp * g.maxMetric);
         d.dampingDt = maxSigma > 0 ? .5 / maxSigma : std::numeric_limits<double>::infinity();
         d.sourceDt = 1 / (50 * p.frequency);
-        const double safe = std::min({d.waveDt, d.dampingDt, d.sourceDt});
+        d.relaxationDt=p.attenuation.enabled?.25/rheology.front().rates[p.attenuation.mechanisms-1]:std::numeric_limits<double>::infinity();
+        d.stateFields=p.attenuation.enabled?6+4*p.attenuation.mechanisms:5;
+        for(const auto& m:rheology)d.maxRelativeQError=std::max(d.maxRelativeQError,m.maxRelativeQError);
+        const double safe = std::min({d.waveDt, d.dampingDt, d.sourceDt,d.relaxationDt});
         const double full = std::ceil(p.duration / safe);
         require(std::isfinite(full) && full <= 10000000,
                 "Requested duration needs too many steps; increase spacing or lower frequency.");
@@ -419,6 +439,8 @@ bool Simulation::initialize(const Parameters &p, std::string &error, BackendKind
                   s.source.data(),
                   s.damping.data()};
         const auto direction = SeisWave::unitSourceDirection(p.source);
+        s.mesh.fieldCount=d.stateFields;
+        if(p.attenuation.enabled){s.mesh.mechanisms=p.attenuation.mechanisms;for(int l=0;l<s.mesh.mechanisms;++l){s.mesh.rates[l]=rheology.front().rates[l];s.mesh.deltaP[l]=s.deltaP[l].data();s.mesh.deltaS[l]=s.deltaS[l].data();}}
         for (int a = 0; a < 3; ++a)
             s.mesh.sourceDirection[a] = direction[a];
         if (explosive)
@@ -430,8 +452,8 @@ bool Simulation::initialize(const Parameters &p, std::string &error, BackendKind
         else
 #endif
             for (auto &state : s.fields)
-                for (auto &field : state)
-                    field.assign(count, 0);
+                for (int f=0;f<s.mesh.fieldCount;++f)
+                    state[f].assign(count, 0);
         d.initializationMs =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
         impl_ = std::move(next);
@@ -596,14 +618,16 @@ bool Simulation::readFrame(int component, std::vector<float> &out, std::string &
         return false;
     }
 }
-Snapshot Simulation::snapshot() const {
+Snapshot Simulation::snapshot(bool includeMemories) const {
     if (!impl_)
         throw std::runtime_error("No 2D session.");
 #ifdef SEIS3D_HAS_CUDA
     if (impl_->cuda)
-        return impl_->cuda->snapshot();
+        return impl_->cuda->snapshot(includeMemories);
 #endif
-    return {impl_->fields[0]};
+    Snapshot result;for(int f=0;f<5;++f)result.fields[f]=impl_->fields[0][f];
+    if(impl_->mesh.mechanisms){result.syy=impl_->fields[0][5];if(includeMemories)for(int f=6;f<impl_->mesh.fieldCount;++f)result.memory.push_back(impl_->fields[0][f]);}
+    return result;
 }
 bool writeSnapshot(const Simulation &s, const std::filesystem::path &path, std::string &error,
                    const SnapshotExportOptions &options) {
@@ -637,6 +661,7 @@ bool writeSnapshot(const Simulation &s, const std::filesystem::path &path, std::
         scalar("RecordIntervalSeconds", s.recordDt());
         scalar("SimulationStep", s.step());
         scalar("TIME_VALUE", s.step() * s.dt());
+        scalar("AttenuationGSLS",p.attenuation.enabled);scalar("QReferenceFrequencyHz",p.attenuation.referenceFrequency);scalar("QBandMinHz",p.attenuation.minFrequency);scalar("QBandMaxHz",p.attenuation.maxFrequency);scalar("RelaxationMechanisms",p.attenuation.enabled?p.attenuation.mechanisms:0);
         const char *names[]{"Vx", "Vz", "VelocityMagnitude", "Pressure", "Sxx", "Szz", "Sxz", "Vp", "Vs", "Density"};
         const auto first = std::find(options.components.begin(), options.components.end(), true) - options.components.begin();
         out << "</FieldData><Piece Extent=\"0 " << p.nx - 1 << " 0 0 0 " << p.nz - 1
@@ -658,7 +683,7 @@ bool writeSnapshot(const Simulation &s, const std::filesystem::path &path, std::
                         // Same physical pressure as the CPU/CUDA display, without Float32 conversion.
                         const double mu = g.density[q] * g.vs[q] * g.vs[q];
                         const double lambda = g.density[q] * g.vp[q] * g.vp[q] - 2 * mu;
-                        value = -(1 + lambda / (2 * (lambda + mu))) * (data.fields[2][q] + data.fields[3][q]) / 3;
+                        value = p.attenuation.enabled?-(data.fields[2][q]+data.fields[3][q]+data.syy[q])/3:-(1 + lambda / (2 * (lambda + mu))) * (data.fields[2][q] + data.fields[3][q]) / 3;
                     } else if (f < 7)
                         value = data.fields[f - 2][q];
                     else
@@ -667,6 +692,8 @@ bool writeSnapshot(const Simulation &s, const std::filesystem::path &path, std::
                 }
             out << "\n</DataArray>\n";
         }
+        if(p.attenuation.enabled){const auto array=[&](const char* name,const std::vector<double>& values){out<<"<DataArray type=\"Float64\" Name=\""<<name<<"\" format=\"ascii\">\n";for(int k=0;k<p.nz;++k)for(int i=0;i<p.nx;++i)out<<values[g.index(i+ghost,k+ghost)]<<' ';out<<"\n</DataArray>\n";};
+            if(options.includeMaterial){array("Qp",g.qp);array("Qs",g.qs);}if(options.components[3]||options.components[4]||options.components[5])array("Syy",data.syy);}
         out << "</PointData><Points><DataArray type=\"Float64\" NumberOfComponents=\"3\" format=\"ascii\">\n";
         for (int k = 0; k < p.nz; ++k)
             for (int i = 0; i < p.nx; ++i) {
@@ -701,6 +728,8 @@ bool writeReceivers(const Simulation &s, const std::filesystem::path &path, std:
             << "\n# backend=" << s.backend().deviceName;
         const auto &p = s.parameters();
         const auto direction = SeisWave::unitSourceDirection(p.source);
+        out<<"\n# GSLS="<<p.attenuation.enabled<<"; mechanisms="<<p.attenuation.mechanisms<<"; reference_Hz="<<p.attenuation.referenceFrequency<<"; fit_band_Hz="<<p.attenuation.minFrequency<<':'<<p.attenuation.maxFrequency;
+        if(p.layered){for(std::size_t i=0;i<p.layers.size();++i)out<<"\n# layer_"<<i<<"_Qp_Qs="<<p.layers[i].qp<<','<<p.layers[i].qs;}else out<<"; Qp="<<p.attenuation.qp<<"; Qs="<<p.attenuation.qs;
         out << "\n# source_kind=" << static_cast<int>(p.source.kind)
             << " (0=directional_force,1=isotropic_moment); force_per_length_N_per_m=" << p.forcePerLength
             << "; diagonal_moment_per_length_N=" << p.momentPerLength << "; direction_XZ=" << direction[0]

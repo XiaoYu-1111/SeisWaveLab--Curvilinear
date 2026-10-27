@@ -39,6 +39,8 @@ int main(int argc, char **argv) {
             return Seis2D::Curvilinear::Ui::validateThemePanels2D();
         if (mode == "--smoke-2d-model")
             return Seis2D::Curvilinear::Ui::validateModelWorkflow2D();
+        if (mode == "--smoke-2d-q")
+            return Seis2D::Curvilinear::Ui::validateAttenuationWorkflow2D();
         if (mode == "--smoke-router") {
             if (runHomeScreen(true, 1) != Route::TwoD ||
                 Seis2D::Curvilinear::Ui::runWorkbench2D(true, true) != returnHome)
