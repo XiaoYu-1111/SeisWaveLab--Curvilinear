@@ -1,0 +1,21 @@
+{
+  "cases": 7,
+  "comparisons": 21,
+  "width_cells": 32,
+  "width_m": 16,
+  "worst_cpml_peak_ratio": 0.0001697943023778698,
+  "worst_cpml_l2_ratio": 0.00044096723512209785,
+  "minimum_peak_improvement": 17.94283661138818,
+  "acceptance_ratio": 0.001,
+  "reference_margin_nodes": 480,
+  "reference_grid": [
+    1201,
+    641
+  ],
+  "terrain_wavelength_m": 80,
+  "fixed_flatten_depth_m": 28,
+  "same_reference_geometry": true,
+  "reference_boundary": "CFS-PML64; boundaries outside first return window",
+  "timing_note": "Single runs; not a controlled performance benchmark",
+  "definition": "mixed-wave trace residual, not an isolated modal reflection coefficient"
+}

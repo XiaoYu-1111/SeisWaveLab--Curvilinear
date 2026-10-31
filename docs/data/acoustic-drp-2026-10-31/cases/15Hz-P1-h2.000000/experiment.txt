@@ -1,0 +1,21 @@
+physics=variable-density acoustic pressure
+method=P1 triangular FEM / lumped mass / second-order time
+boundary=CFS-CPML, weak-form convolution filters
+precision=FP32
+source_strength_Pa_m2_s2=100000000
+source=area-normalized nodal pressure acceleration; Ricker delay 1.5/f
+Vs and Q are not used. No Rayleigh/S/conversion waves. Pressure is not Vz/Vx.
+Current RTM uses a different source normalization; absolute amplitudes are not interchangeable.
+CPU/GPU speed ratios from elastic benchmarks do not apply.
+dt_s=0.00046156270700328941
+step=6500
+total_steps=6500
+record_dt_s=0.00050000000000000001
+compute_ms=363.10649999999998
+pressure_records.sgy=SEG-Y rev2; IEEE32; Pa; gain=1; no display AGC
+
+resident_host_arrays_bytes=8539635
+ram_budget_policy=automatic
+resolved_ram_budget_MiB=4572.0417968749998
+resident_device_arrays_bytes=8231727
+model_acoustic.vts reloads the model at t=0, pressure.vts is not a restart file.

@@ -1,0 +1,17 @@
+logical_nx=5001
+logical_nz=2001
+compute_nx=5049
+compute_nz=2025
+precision=FP32
+boundary=CFS-CPML
+Vp_min_m_s=500
+frequency_Hz=15
+steps=8
+dt_s=0.00049993554256605205
+initialization_ms=2058.5648999999999
+compute_ms=23.0212
+resident_host_arrays_bytes=751805865
+resident_device_arrays_bytes=686581961
+RAM_budget_MiB=2616.2723083496094
+peak_pressure_Pa=2.4299234895859653e-06
+Short capacity check only; not a complete production simulation or convergence test.

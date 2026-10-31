@@ -1,0 +1,3 @@
+CPU: PASS elastic/GSLS + P1/DRP, FP32/FP64, internal/external, stale layout repair, repeated alignment, resize, manual, VTS roundtrip, imported DEM
+CUDA: PASS elastic/GSLS + P1/DRP, FP32/FP64, internal/external, stale layout repair, repeated alignment, resize, manual, VTS roundtrip, imported DEM
+PASS: automatic forward surface survey and model reproducibility; numerical defaults remain manual

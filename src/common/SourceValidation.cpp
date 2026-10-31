@@ -106,7 +106,7 @@ void injection(int dimensions, const SourceMechanism &mechanism) {
         const auto snap = s.snapshot();
         // Adapt the grid name while keeping the physical integration explicit.
         struct JacobianView {
-            const std::vector<double> &jacobian;
+            const Seis2D::Curvilinear::ScalarArray &jacobian;
         } g{s.grid().jacobian};
         accumulate(g, snap.fields, 2);
         dt = s.dt();

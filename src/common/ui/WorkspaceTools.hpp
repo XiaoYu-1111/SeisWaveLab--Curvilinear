@@ -1,7 +1,9 @@
 #pragma once
+#include "MenuWidgets.hpp"
 #include "AppRuntime.hpp"
 #include "ParameterPanelHost.hpp"
 #include <fstream>
+#include <array>
 #include <span>
 namespace SeisWave::Ui {
 // Window-only state: these operations never touch physical parameters or fields.
@@ -46,7 +48,7 @@ struct WorkspaceTools {
     bool menu(int dimension,std::span<bool> panels) {
         using namespace Seis3D::Curvilinear::Ui;bool loaded=false;
         ImGui::BeginDisabled(!focused.empty());
-        for(bool save:{true,false})if(ImGui::BeginMenu(language3D()?(save?"保存自定义布局":"载入自定义布局"):(save?"Save custom layout":"Load custom layout"))) {
+        for(bool save:{true,false})if(SeisWave::Ui::beginDropdownMenu(language3D()?(save?"保存自定义布局":"载入自定义布局"):(save?"Save custom layout":"Load custom layout"))) {
             for(int slot=1;slot<=3;++slot) {
                 const auto folder=outputRoot()/"ui";
                 const auto file=folder/(std::to_string(dimension)+"d-workspace-"+std::to_string(slot)+".ini");

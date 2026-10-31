@@ -1,0 +1,28 @@
+Internal ctest changing into directory: D:/Code/visual_code/Cmake_project/CMake_pro_CUDA/SeisWaveLab_Curvilinear_Workspace/out/build/x64-Release
+Test project D:/Code/visual_code/Cmake_project/CMake_pro_CUDA/SeisWaveLab_Curvilinear_Workspace/out/build/x64-Release
+      Start  1: curvilinear_2d_module_isolation
+ 1/11 Test  #1: curvilinear_2d_module_isolation ....   Passed    0.11 sec
+      Start  2: curvilinear_2d_acoustic_forward
+ 2/11 Test  #2: curvilinear_2d_acoustic_forward ....   Passed   10.57 sec
+      Start  3: curvilinear_2d_acoustic_drp
+ 3/11 Test  #3: curvilinear_2d_acoustic_drp ........   Passed    1.99 sec
+      Start  4: curvilinear_2d_acoustic_cpml
+ 4/11 Test  #4: curvilinear_2d_acoustic_cpml .......   Passed    2.11 sec
+      Start  5: curvilinear_2d_rtm_imaging
+ 5/11 Test  #5: curvilinear_2d_rtm_imaging .........   Passed    2.48 sec
+      Start 14: curvilinear_2d_model_io_sampling
+ 6/11 Test #14: curvilinear_2d_model_io_sampling ...   Passed    1.60 sec
+      Start 33: curvilinear_2d_rtm_ui
+ 7/11 Test #33: curvilinear_2d_rtm_ui ..............   Passed    2.10 sec
+      Start 34: curvilinear_2d_acoustic_ui
+ 8/11 Test #34: curvilinear_2d_acoustic_ui .........   Passed    6.07 sec
+      Start 38: curvilinear_2d_cfs_pml_ui
+ 9/11 Test #38: curvilinear_2d_cfs_pml_ui ..........   Passed   16.10 sec
+      Start 40: curvilinear_2d_workflow_upgrade
+10/11 Test #40: curvilinear_2d_workflow_upgrade ....   Passed    0.79 sec
+      Start 41: curvilinear_2d_surface_survey
+11/11 Test #41: curvilinear_2d_surface_survey ......   Passed    2.85 sec
+
+100% tests passed, 0 tests failed out of 11
+
+Total Test time (real) =  46.79 sec

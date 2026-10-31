@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-31",
+  "figures": [
+    {
+      "file": "docs/images/acoustic-drp/verification.png",
+      "sha256": "672daa12b11ab7036d6fc9faa5e064280567d644497f89f06fff800d74f9778d"
+    },
+    {
+      "file": "docs/images/acoustic-drp/pilot_efficiency.png",
+      "sha256": "1ba70573f1bac3ba25c6df278e61d985c62ab0222287718354a861b8ac8e567e"
+    },
+    {
+      "file": "docs/images/acoustic-drp/pilot_records.png",
+      "sha256": "f68275a478d319704efdb8b289aa173eec4ad15b129ce035669e4276149a81bc"
+    }
+  ]
+}

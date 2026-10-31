@@ -21,6 +21,15 @@ def resolve_style(cfg):
     common=merge(catalog['common'],{'record_cmap':colors['record'],'models':{'cmap':colors['model']},'snapshots':{'cmap':colors['wavefield']},'dispersion':{'cmap':colors['dispersion']}})
     resolved=merge(merge(common,catalog['profiles'][name]),cfg)
     resolved['style_profile']=name
+    layout_name=resolved.get('journal_layout')
+    if layout_name is not None:
+        layouts=catalog.get('journal_layouts',{})
+        if layout_name not in layouts:raise ValueError(f'Unknown journal_layout {layout_name!r}; use {list(layouts)}')
+        layout=merge(layouts[layout_name],resolved.get('journal_options',{}))
+        for k in ('width_mm','font_size_pt','minimum_font_pt','maximum_font_pt','dpi'):
+            if not isinstance(layout.get(k),(int,float)) or not math.isfinite(layout[k]) or layout[k]<=0:raise ValueError(f'journal_options.{k} must be finite and positive')
+        if layout['minimum_font_pt']>layout['maximum_font_pt']:raise ValueError('journal font limits are reversed')
+        resolved['journal_options']=layout
     resolved['style_provenance']={'version':catalog['version'],'file':'styles/current_publication.json','sha256':hashlib.sha256(STYLE_FILE.read_bytes()).hexdigest()}
     for key in ['agc_window_s','agc_clip','raw_limit_m_s']:
         value=resolved.get('records',{}).get(key)
@@ -32,6 +41,26 @@ def resolve_style(cfg):
     if scope=='fixed' and (not math.isfinite(snap.get('vmax_m_s',0)) or snap.get('vmax_m_s',0)<=0):raise ValueError('fixed scale requires positive vmax_m_s')
     if snap.get('linthresh_m_s') is not None and not 0<snap['linthresh_m_s']<snap.get('vmax_m_s',float('inf')):raise ValueError('linthresh_m_s must be positive and below vmax_m_s')
     return resolved
+
+def prepare_journal_figure(fig, cfg):
+    """Size at intended print width, preserving data, artist colours and norms.
+
+    The layout is opt-in; individual panel design and legibility still require review.
+    """
+    if not cfg.get('journal_layout'):return False
+    from matplotlib.text import Text
+    layout=cfg['journal_options'];width=layout['width_mm']/25.4
+    old_width,old_height=fig.get_size_inches()
+    if old_width<=0 or old_height<=0:raise ValueError('Invalid figure size')
+    fig.set_size_inches(width,width*old_height/old_width,forward=True)
+    for text in fig.findobj(match=Text):
+        if text.get_text():
+            # Matplotlib may construct numeric tick labels only during the draw.
+            text.set_fontsize(min(max(text.get_fontsize(),layout['minimum_font_pt']),layout['maximum_font_pt']))
+    if fig.get_layout_engine() is None:
+        fig.tight_layout()
+    fig.canvas.draw()
+    return True
 
 def ordered_components(available,preferred=('Vz','Vx')):
     available=set(available)

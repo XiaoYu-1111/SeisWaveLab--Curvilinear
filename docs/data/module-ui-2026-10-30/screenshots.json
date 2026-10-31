@@ -1,0 +1,258 @@
+{
+  "date": "2026-10-31",
+  "captures": [
+    {
+      "source": "out/screenshots/absorber-display/elastic.ppm",
+      "image": "docs/images/absorber-display/elastic.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "387a4d94dafc7dc23540cfff86d6e3a26c59d154529ef9c45adadbb06bb9d5ac"
+    },
+    {
+      "source": "out/screenshots/absorber-display/viscoelastic.ppm",
+      "image": "docs/images/absorber-display/viscoelastic.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "1e080e1db9af03b37830632e536601d5d2c3be633ad7b2e583c30f9dd7bd51ac"
+    },
+    {
+      "source": "out/screenshots/acoustic/forward-6.ppm",
+      "image": "docs/images/acoustic/workspace.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "669c669b343ce0dea75520fcba71cae2b8e3391d46b853ba9b91badd6f0d4b37"
+    },
+    {
+      "source": "out/screenshots/acoustic/model-wavefield-overlay.ppm",
+      "image": "docs/images/acoustic/model-wavefield-overlay.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "d5169a12a9683ac73e26f58747a95ec3c9cdc3603e1d07a9cd446c39a80cc3c9"
+    },
+    {
+      "source": "out/screenshots/acoustic/single-pressure-trace.ppm",
+      "image": "docs/images/acoustic/single-pressure-trace.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "69e13fa3d5aaf78ddf5fcc97dc278e450b4f6134b1d23170ad8a097f32469d41"
+    },
+    {
+      "source": "out/screenshots/acoustic/absorber-wavefield.ppm",
+      "image": "docs/images/acoustic/absorber-wavefield.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "2d7e8a044615ccc4758616035e5fc7ef675bc6206ad658d5e865137784b36492"
+    },
+    {
+      "source": "out/screenshots/acoustic/absorber-model-wavefield.ppm",
+      "image": "docs/images/acoustic/absorber-model-wavefield.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "0642195ba0e56c47ab4cb0931bf006b01a33e477a3411e82e8e0b68f69137e03"
+    },
+    {
+      "source": "out/screenshots/acoustic/floating-parameters.ppm",
+      "image": "docs/images/acoustic/floating-parameters.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "e968979b471b01f26fcbcb42bb8be0c5b669b25cfc0092dc8b12d09645628294"
+    },
+    {
+      "source": "out/screenshots/acoustic/keyboard-help.ppm",
+      "image": "docs/images/acoustic/keyboard-help.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "1431823f48eb386fde7978a03e42a2a69ff00851ac3e592d7e08e25a823f6e3f"
+    },
+    {
+      "source": "out/screenshots/acoustic/terrain-acquisition.ppm",
+      "image": "docs/images/acoustic/terrain-acquisition.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "1a3adea136c89a166a0388a14434646150b267205732be5c345ac76687cb6e1c"
+    },
+    {
+      "source": "out/screenshots/acoustic/model-capacity.ppm",
+      "image": "docs/images/acoustic/model-capacity.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "e627d097931d3739ebaa52f035044cbb21f0a238fe1cff1d6ed52b10cd9e40cb"
+    },
+    {
+      "source": "out/screenshots/acoustic/shared-layer-editor.ppm",
+      "image": "docs/images/acoustic/shared-layer-editor.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "881c87579f2a8595f0effc1911aa39d3cc07d47c3a5672fcd2a4dcbd1f1f8401"
+    },
+    {
+      "source": "out/screenshots/acoustic/shared-terrain-editor.ppm",
+      "image": "docs/images/acoustic/shared-terrain-editor.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "6c9b6b46a8c6a1d0a185fecb2c56ce7054766aad80c9b9978a1a8ff6c3ace0dc"
+    },
+    {
+      "source": "out/screenshots/acoustic/surface-receivers.ppm",
+      "image": "docs/images/acoustic/surface-receivers.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "7657686dfc96a07b1e3e5d1351708a7e77e36e44c22fe873cf381c9121d72eb1"
+    },
+    {
+      "source": "out/screenshots/acoustic/drp-workspace.ppm",
+      "image": "docs/images/acoustic/drp-workspace.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "70185f72f4a823a5ae7857e396f664ff437e5c69397b32a5af2b0733d2a60597"
+    },
+    {
+      "source": "out/screenshots/acoustic/auto-surface.ppm",
+      "image": "docs/images/acoustic/auto-surface.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "2f78a8e5cbc07dcf8b94fefa00e3ac70cee37a28ea6fdab80b932a0b32638f92"
+    },
+    {
+      "source": "out/screenshots/auto-surface/elastic.ppm",
+      "image": "docs/images/auto-surface/elastic.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "2ac932ca8beb667c540e35ecbcd7a1c934529dc3edb2a13a6cfd4570ad8b8aa3"
+    },
+    {
+      "source": "out/validation/acoustic-capacity-auto-2026-10-31/cuda-5000x2000.ppm",
+      "image": "docs/images/acoustic/cuda-5000x2000.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "aba93c6bd2322aee0f9b3306e12fa59c451a69c738530828a6898e42142b38c1"
+    },
+    {
+      "source": "out/screenshots/imaging/running-preview.ppm",
+      "image": "docs/images/imaging/running-preview.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "c5717722a37a1676bf10aeb342ce892bd0a7205adbc9e698d441b7ecba7ee754"
+    },
+    {
+      "source": "out/screenshots/imaging/rtm-6.ppm",
+      "image": "docs/images/imaging/workspace.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "76918da7e6a267616723a8d20b35725c381511f044541d9d785b00d2ae4b5c18"
+    },
+    {
+      "source": "out/screenshots/imaging/floating-parameters.ppm",
+      "image": "docs/images/imaging/floating-parameters.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "547a3ad7b1dc4d78c47fd56c3a56eca67ee9c85b2dac2eea80a94c28d72d2418"
+    },
+    {
+      "source": "out/screenshots/imaging/rebuild-surface.ppm",
+      "image": "docs/images/imaging/rebuild-surface.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "3452c5f358e5a3646cd1589edf42398ce13f73db909eb1cba7d39252cb48a59f"
+    },
+    {
+      "source": "out/screenshots/imaging/manual-receivers.ppm",
+      "image": "docs/images/imaging/manual-receivers.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "processing": "Lossless PNG only; native complete framebuffer",
+      "sha256": "d5fd58af7fb05dbd3e2c97dab0553e25c5f8f51d665578f17a835f6fedb6a6e8"
+    }
+  ]
+}

@@ -1,6 +1,10 @@
 {
-  "version": "2026-10-27",
+  "version": "2026-10-28",
   "colors": {"record": "gray", "model": "turbo", "wavefield": "coolwarm", "dem": "jet", "dispersion": "viridis", "trial_q": "plasma"},
+  "journal_layouts": {
+    "ogp_single": {"width_mm": 81.5, "font_size_pt": 8, "minimum_font_pt": 7, "maximum_font_pt": 9, "dpi": 600},
+    "ogp_double": {"width_mm": 170, "font_size_pt": 8, "minimum_font_pt": 7, "maximum_font_pt": 9, "dpi": 600}
+  },
   "common": {
     "font_family": ["Times New Roman", "Microsoft YaHei"],
     "font_size": 14,
@@ -17,6 +21,7 @@
   "profiles": {
     "publication": {},
     "jingbian_15_30": {
+      "trace_spectra": {"display_max_hz": 100, "window": "hann"},
       "records": {
         "modes": ["raw", "rms", "agc"], "layouts": ["component_matrices", "component_pairs"],
         "velocity_unit": "um/s", "distance_unit": "km",

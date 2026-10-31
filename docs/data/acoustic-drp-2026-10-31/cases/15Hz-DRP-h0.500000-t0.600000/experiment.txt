@@ -1,0 +1,24 @@
+physics=variable-density acoustic pressure
+method=experimental curvilinear central DRP7 / first-order p-v / classical RK4
+boundary=CFS-CPML, four ADE histories at every RK stage
+precision=FP32
+source_strength_Pa_m2_s2=100000000
+source=area-normalized nodal pressure acceleration; Ricker delay 1.5/f
+Vs and Q are not used. No Rayleigh/S/conversion waves. Pressure is not Vz/Vx.
+Current RTM uses a different source normalization; absolute amplitudes are not interchangeable.
+CPU/GPU speed ratios from elastic benchmarks do not apply.
+dt_s=7.3397874075453728e-05
+step=8175
+total_steps=8175
+record_dt_s=0.00050000000000000001
+compute_ms=36473.303800000002
+pressure_records.sgy=SEG-Y rev2; IEEE32; Pa; gain=1; no display AGC
+
+resident_host_arrays_bytes=31829696
+ram_budget_policy=automatic
+resolved_ram_budget_MiB=4567.41796875
+resident_device_arrays_bytes=136589548
+model_acoustic.vts reloads the model at t=0, pressure.vts is not a restart file.
+drp_source_spatial=5x5 binomial, clipped/area normalized
+drp_dissipation=0.20000000000000001
+drp_filter=sixth-difference pressure, energy-weighted; numerical, not material Q

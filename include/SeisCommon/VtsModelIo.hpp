@@ -62,9 +62,10 @@ inline int integer(double value, int low, int high) {
 }
 // Stream large point arrays; only compact metadata is retained in memory.
 inline std::vector<double> readArray(std::istream &in, const std::string &header, Checksum *hash,
-                                     std::size_t count, bool retain) {
-    require(attribute(header, "format") == "ascii" && attribute(header, "type") == "Float64",
-            "Model import requires SeisWave ASCII Float64 VTS arrays.");
+                                     std::size_t count, bool retain,bool allowFloat32=false) {
+    const bool fp32=attribute(header,"type")=="Float32";
+    require(attribute(header, "format") == "ascii" && (attribute(header, "type") == "Float64"||(allowFloat32&&fp32)),
+            "Model import requires supported SeisWave ASCII floating point VTS arrays.");
     const auto name = attribute(header, "Name");
     if (hash)
         hash->name(name);
@@ -74,6 +75,7 @@ inline std::vector<double> readArray(std::istream &in, const std::string &header
     for (std::size_t n = 0; n < count; ++n) {
         double v{};
         require(static_cast<bool>(in >> v) && std::isfinite(v), "Missing or nonfinite VTS data: " + name);
+        if(fp32){v=static_cast<float>(v);require(std::isfinite(v),"Float32 VTS value overflows: "+name);}
         if (hash)
             hash->number(v);
         if (retain)

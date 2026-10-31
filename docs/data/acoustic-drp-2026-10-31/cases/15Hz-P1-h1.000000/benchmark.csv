@@ -1,0 +1,2 @@
+frequency,method,h,nx,nz,dt,steps,init_ms,compute_ms,host_array_bytes,device_array_bytes,process_peak_working_set_bytes
+15,P1,1,601,301,0.00022958545072943544,13068,119.40560000000001,1180.538,31021053,32808393,203980800

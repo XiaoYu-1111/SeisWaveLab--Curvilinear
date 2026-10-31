@@ -1,6 +1,16 @@
 # 模型复现与波场数据交换
 
-修订日期：2026 年 10 月 25 日。
+2026-10-31正演采集更新：声学P1/DRP与弹性/黏弹性支持随模型自动沿地表均匀布设检波器，期望/实际道数分别保存；可切回手动，模型VTS保留设置，旧模型采集线保持兼容。[操作与验证](FORWARD_SURFACE_RECEIVERS_2D.md)。
+
+2026-10-31高阶声学升级：新增独立CPU/CUDA、FP32/FP64曲网格DRP7–RK4试验核，含零压力自由面、外扩ADE-CPML、震源正则化及选择性数值耗散。解析/界面/吸收与八项回归通过；15/30 Hz局部对照未通过5%等误差门槛，P1继续默认，RTM保持P1。[实现、实测与下一阶段门槛](ACOUSTIC_DRP_2D.md)。
+
+2026-10-31补充：声学默认自动RAM预算，切换CPU/CUDA及精度立即刷新容量，修复重建几何内存重复计数；真实界面CUDA FP32 5000×2000完成8步容量验收。新增“采集 → 地表均匀布设”，并补充有限元与高阶差分的取舍。[说明与验证](ACOUSTIC_CAPACITY_AND_METHOD.md)。
+
+2026-10-31更新：二维功能工具栏分组留白；声学与弹性共用地形/分层编辑，按空闲内存与预算提示网格上限；压力增加SEG-Y rev2 IEEE32/64导出；RTM新增限速过程预览。[操作、截图与验证](WORKFLOW_UPGRADE_2D.md)。
+
+声学正演使用独立物理标识：P1手动预算模型写schema 2，P1自动预算写schema 3（Runtime中的RAM值0）；两者保存校验内的AcousticBoundary（海绵/CPML、目标R、κ、参考频率）。试验DRP模型写schema 4，另保存校验内的AcousticPropagator（算法、选择性数值耗散）。旧schema 1读为海绵，旧schema 1/2保留手动预算，保持历史复现；旧schema 1/2/3均使用P1。此编号与弹性及三维schema分别管理。模型从t=0重建，压力快照不含CPML卷积历史，不能用于中途续算。详见[声学CPML](ACOUSTIC_CPML_2D.md)和[试验DRP文件说明](ACOUSTIC_DRP_2D.md)。
+
+修订日期：2026 年 10 月 29 日。
 
 ## 数据对象与适用范围
 
@@ -23,7 +33,9 @@
 
 ## 模型字段
 
-坐标与数组使用 ASCII Float64、17 位有效数字、经典小数点格式。索引按 X 最快、其次 Y、最后 Z 排列。二维尺寸为 `(Nx,1,Nz)`，Y=0；三维为 `(Nx,Ny,Nz)`。坐标单位 m，Z 向下为正；物性 Vp/Vs 为 m/s，Density 为 kg/m³。
+二维启用固定物理源核时采用schema 6，`PhysicalSourceKernelM`保存高斯σ和截断半径（m），并参与完整性校验；同时显式保存精度、PML和外扩配置。旧模型保持原schema与默认格点源核，旧程序不能读取schema 6。接口、限制与往返检查见[黄土沟谷先导实现](LOESS_SURFACE_ATTENUATION_PILOT.md)。
+
+坐标与点数组使用ASCII：二维按所选精度写Float32或Float64，三维仍为Float64；参数元数据保留Float64，以17位有效数字和经典小数点格式写出。索引按 X 最快、其次 Y、最后 Z 排列。二维尺寸为 `(Nx,1,Nz)`，Y=0；三维为 `(Nx,Ny,Nz)`。坐标单位 m，Z 向下为正；物性 Vp/Vs 为 m/s，Density 为 kg/m³。
 
 | 区域 | 二维 | 三维 |
 | --- | --- | --- |
@@ -50,9 +62,13 @@
 | Sxx、Syy、Szz、Sxy、Sxz、Syz | Pa | 应力张量分量，二维独立存储 Sxx/Szz/Sxz |
 | Velocity（三维可选） | m/s | 每节点 `(Vx,Vy,Vz)` 三分量 |
 
-二维无衰减时用平面应变弹性关系 `Syy=λ(Sxx+Szz)/(2(λ+μ))`；启用 GSLS 后独立积分 Syy，并由真实三正应力计算压力。压力正号与拉应力正号相反。二维模型 schema 2 另保存 `GSLSSettings`（启用、机制数、频带下限/上限、参考频率、均匀 Qp/Qs）和 `LayerQpQs`，兼容无衰减 schema 1，详见[二维黏弹性](QP_QS_VISCOELASTIC_2D.md)。
+二维无衰减时用平面应变弹性关系 `Syy=λ(Sxx+Szz)/(2(λ+μ))`；启用 GSLS 后独立积分 Syy，并由真实三正应力计算压力。压力正号与拉应力正号相反。二维模型 schema 2 另保存 `GSLSSettings`（启用、机制数、频带下限/上限、参考频率、均匀 Qp/Qs）和 `LayerQpQs`，兼容无衰减 schema 1，详见[二维黏弹性](QP_QS_VISCOELASTIC_2D.md)。选择 PML 或修改其配置后，二维模型写 schema 3，另保存受校验的 `CfsPmlSettings`（吸收类型、R、κ、参考频率）。旧 schema 1/2 按海绵读取，默认海绵仍写 schema 2；旧程序不能读 schema 3。波场 VTS 和接收 CSV 也带吸收配置，普通导出不包含 PML 记忆历史，详见[吸收边界说明](CFS_PML_2D.md)。
 
-波场及坐标以 Float64 写出，保留当前有效步和实际 dt/时间，X 最快变化。不导出绘图 Float32 缓冲、显示增益、色标归一化、透明度、调色或大模型绘图步距。可选材料来自实际模型；CPU/CUDA 的同一配置采用同一空间定义。默认三参数导出接口仍输出全部传统场，显式选择接口供界面调用。
+二维启用外扩吸收带时使用 schema 4，另保存校验内的 `ExternalAbsorption`；旧 schema 1..3 仍按原内部模式读取。目标 Nx×Nz 的坐标、DEM 与采集设置不被扩域改写，文件中的模型/波场点数组只含完整目标域；波场元数据和 CSV 注释标明实际计算节点数。旧版程序不能读取 schema 4。底部数值带沿用目标底面物性与 Q，侧面地形作连续延拓；普通模型重建仍不是中途续算。
+
+二维FP32模型写schema 5，增加参与校验的`CalculationPrecision`（1=FP32，0=FP64），点数组与坐标写Float32；FP64仍按既有schema 2/3/4保存，旧schema 1..4默认读为FP64。FP32文件也保存GSLS、PML及外扩设置，损坏精度值或数组不能通过校验。原始高程和参数仍用double重建，再转换为所选精度，不缓存整套双精度模型。详见[精度与复现验证](PRECISION_2D.md)。
+
+波场及坐标按二维当前精度、三维Float64写出，保留当前有效步和实际dt/时间，X最快变化。二维波场另含`CalculationPrecisionBits`；接收CSV注明计算/模型精度及Float64记录容器，后者不会恢复FP32丢失的有效位。不导出绘图Float32缓冲、显示增益、色标归一化、透明度、调色或大模型绘图步距。可选材料来自实际模型；CPU/CUDA的同一配置采用同一空间定义。默认三参数导出接口仍输出全部传统场，显式选择接口供界面调用。
 
 ![二维波场快照按分量导出](images/two-d/export.png)
 

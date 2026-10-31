@@ -13,7 +13,7 @@ public:
     bool initialized()const;bool completed()const;int step()const;int totalSteps()const;double dt()const;double recordDt()const;
     const Parameters& parameters()const;const Grid& grid()const;const Diagnostics& diagnostics()const;
     const std::vector<Receiver>& receivers()const;BackendInfo3D backend()const;
-    bool readFrame(int,std::vector<float>&,std::string&)const;Snapshot snapshot(bool includeMemories=false)const;
+    bool readFrame(int,std::vector<float>&,std::string&,bool includeAbsorber=false)const;Snapshot snapshot(bool includeMemories=false)const;
     // Explicit model/snapshot exporters synchronize before accessing core state.
     operator const Simulation&()const;
 };

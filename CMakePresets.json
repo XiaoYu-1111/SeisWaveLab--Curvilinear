@@ -59,6 +59,19 @@
     {
       "name": "x64-Debug",
       "configurePreset": "x64-Debug"
+    },
+    {
+      "name": "x64-Release-runtime",
+      "configurePreset": "x64-Release",
+      "displayName": "Release runtime applications only",
+      "targets": [
+        "SeisWaveLab_Curvilinear",
+        "SeisWaveLab_MASW",
+        "seis2d_experiment",
+        "seis2d_q_experiment",
+        "seis2d_loess_pilot",
+        "seis3d_curvilinear_demo"
+      ]
     }
   ],
   "testPresets": [

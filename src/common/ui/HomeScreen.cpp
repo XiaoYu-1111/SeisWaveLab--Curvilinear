@@ -14,9 +14,7 @@
 namespace SeisWave::Ui {
 using namespace Seis3D::Curvilinear::Ui;
 namespace {
-const char *l(const char *en, const char *zh) {
-    return language3D() ? zh : en;
-}
+const char *l(const char *en, const char *zh) { return language3D() ? zh : en; }
 ImVec4 mix(ImVec4 a, ImVec4 b, float t) {
     return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, 1};
 }
@@ -145,6 +143,8 @@ Route runHomeScreen(bool smoke, int choice) {
     Route result = Route::Home;
     std::array<ImRect, 2> buttons{};
     std::array<ImRect, 2> illustrations{};
+    ImRect acousticEntry;
+    std::array<ImRect, 2> acousticOptions;
     for (int frame = 0; !glfwWindowShouldClose(runtime.window()); ++frame) {
         if (smoke && !choice && frame % 8 == 0 && frame <= 40) {
             const int sizes[3][2]{{1600, 1000}, {1280, 800}, {960, 640}};
@@ -167,11 +167,18 @@ Route runHomeScreen(bool smoke, int choice) {
             applyTheme3D(0);
         }
         if (smoke && choice && frame == 2) {
-            const auto at = illustrations[choice - 1].GetCenter();
+            const auto at = choice >= 3 ? acousticEntry.GetCenter() : illustrations[choice - 1].GetCenter();
             io.AddMousePosEvent(at.x, at.y);
             io.AddMouseButtonEvent(0, true);
         }
         if (smoke && choice && frame == 3)
+            io.AddMouseButtonEvent(0, false);
+        if (smoke && choice >= 3 && frame == 6) {
+            auto at = acousticOptions[choice == 3 ? 1 : 0].GetCenter();
+            io.AddMousePosEvent(at.x, at.y);
+            io.AddMouseButtonEvent(0, true);
+        }
+        if (smoke && choice >= 3 && frame == 7)
             io.AddMouseButtonEvent(0, false);
         runtime.begin();
         const auto *vp = ImGui::GetMainViewport();
@@ -290,8 +297,23 @@ Route runHomeScreen(bool smoke, int choice) {
         ImGui::TextColored(functionColor3D(usable ? FunctionRole3D::Run : FunctionRole3D::Display),
                            "CPU / OpenMP  +  CUDA  |  %d %s", usable,
                            l("usable CUDA devices", "个可用 CUDA 设备"));
-        ImGui::TextWrapped(
-            "%s", "XIAO YU  |  C++20 / CUDA / OpenMP / OpenGL / GLFW / Dear ImGui / ImPlot / CMake");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(240);
+        const auto acousticOrigin = ImGui::GetCursorScreenPos();
+        acousticEntry = {acousticOrigin,
+                         {acousticOrigin.x + 240, acousticOrigin.y + ImGui::GetFrameHeight()}};
+        bool acousticMenu = ImGui::BeginCombo("##homeAcoustic", l("Acoustics / P", "声学 / P"));
+        if (acousticMenu) {
+            if (ImGui::Selectable(l("Acoustic forward", "声学正演")))
+                result = Route::Acoustic;
+            acousticOptions[0] = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
+            if (ImGui::Selectable(l("RTM / illumination", "RTM 成像与照明")))
+                result = Route::Imaging;
+            acousticOptions[1] = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
+            ImGui::EndCombo();
+        }
+        ImGui::TextWrapped("%s",
+                           "XIAO YU  |  C++20 / CUDA / OpenMP / OpenGL / GLFW / Dear ImGui / ImPlot / CMake");
         const ImVec2 flowSize{ImGui::GetContentRegionAvail().x, compact ? 32.f : 58.f};
         flowingWave(ImGui::GetWindowDrawList(), ImGui::GetCursorScreenPos(), flowSize,
                     animate ? (smoke ? frame * .04 : ImGui::GetTime()) : 0);
@@ -299,8 +321,18 @@ Route runHomeScreen(bool smoke, int choice) {
         ImGui::End();
         ImGui::PopStyleVar();
         runtime.present();
-        if (smoke && choice && frame == 4) {
-            if (result != (choice == 1 ? Route::TwoD : Route::ThreeD))
+        if (smoke && choice >= 3 && (frame == 3 || frame == 5)) {
+            int w, h;
+            glfwGetFramebufferSize(runtime.window(), &w, &h);
+            capture(outputRoot() / ("screenshots/module-ui/home-group-" + std::to_string(choice) + "-" +
+                                    std::to_string(frame) + ".ppm"),
+                    w, h);
+        }
+        if (smoke && choice && frame == (choice >= 3 ? 8 : 4)) {
+            if (result != (choice == 1   ? Route::TwoD
+                           : choice == 3 ? Route::Imaging
+                           : choice == 4 ? Route::Acoustic
+                                         : Route::ThreeD))
                 throw std::runtime_error("Home card routed to the wrong dimension");
             std::cout << "Home route PASS: " << choice << '\n';
             return result;

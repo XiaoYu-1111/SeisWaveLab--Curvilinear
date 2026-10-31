@@ -22,7 +22,16 @@ Arrays metadata(const Simulation &s, const ComputeSettings3D &compute) {
     const auto &p = s.parameters();
     Arrays a;
     const auto add = [&](const char *name, double value) { a[name] = {value}; };
-    add("SeisWaveModel2DVersion", 2);
+    const bool pmlSchema=p.absorber!=Absorber::Sponge||p.cpml!=CfsPmlSettings{};
+    const bool fp32=p.precision==Precision::Float32;
+    const bool physicalSource=p.sourceSigmaM>0;
+    const bool surveySchema=p.autoSurfaceReceivers||p.receiverTargetCount!=0;
+    add("SeisWaveModel2DVersion",surveySchema?7:physicalSource?6:fp32?5:p.externalAbsorption?4:pmlSchema?3:2);
+    if(surveySchema)a["SurfaceReceiverLayout"]={double(p.autoSurfaceReceivers),double(p.receiverTargetCount)};
+    if(fp32||physicalSource||surveySchema)add("CalculationPrecision",static_cast<int>(p.precision));
+    if(pmlSchema||p.externalAbsorption||fp32||physicalSource||surveySchema)a["CfsPmlSettings"]={double(static_cast<int>(p.absorber)),p.cpml.targetReflection,p.cpml.kappaMax,p.cpml.frequency};
+    if(p.externalAbsorption||fp32||physicalSource||surveySchema)add("ExternalAbsorption",p.externalAbsorption);
+    if(physicalSource||surveySchema)a["PhysicalSourceKernelM"]={p.sourceSigmaM,p.sourceRadiusM};
     a["GSLSSettings"]={double(p.attenuation.enabled),double(p.attenuation.mechanisms),p.attenuation.minFrequency,p.attenuation.maxFrequency,p.attenuation.referenceFrequency,p.attenuation.qp,p.attenuation.qs};
     auto& layerQ=a["LayerQpQs"];for(const auto& l:p.layers)layerQ.insert(layerQ.end(),{l.qp,l.qs});
 #define PARAM(member) add("Parameter_" #member, p.member)
@@ -70,6 +79,7 @@ bool writeModelVts(const Simulation &s, const std::filesystem::path &path,
         require(s.initialized(), "Initialize the 2D model before saving.");
         const auto &p = s.parameters();
         const auto &g = s.grid();
+        const char* pointType=p.precision==Precision::Float32?"Float32":"Float64";
         auto arrays = metadata(s, compute);
         Checksum hash;
         for (const auto &[name, values] : arrays) {
@@ -81,7 +91,7 @@ bool writeModelVts(const Simulation &s, const std::filesystem::path &path,
         }
         const auto nodes = [&](const auto &emit) {
             for (int k = 0; k < p.nz; ++k)
-                for (int i = 0; i < p.nx; ++i) emit(g.index(i + ghost, k + ghost));
+                for (int i = 0; i < p.nx; ++i) emit(g.modelIndex(i,k));
         };
         for (int f = 0; f < 6; ++f) {
             hash.name(pointNames[f]);
@@ -110,11 +120,11 @@ bool writeModelVts(const Simulation &s, const std::filesystem::path &path,
         out << "</FieldData>\n<Piece Extent=\"0 " << p.nx - 1 << " 0 0 0 " << p.nz - 1
             << "\"><PointData Scalars=\"Vp\">\n";
         for (int f = 0; f < 6; ++f) {
-            out << "<DataArray type=\"Float64\" Name=\"" << pointNames[f] << "\" format=\"ascii\">\n";
+            out << "<DataArray type=\""<<pointType<<"\" Name=\"" << pointNames[f] << "\" format=\"ascii\">\n";
             nodes([&](std::size_t q) { out << pointValue(g, f, q) << ' '; });
             out << "\n</DataArray>\n";
         }
-        out << "</PointData><Points><DataArray type=\"Float64\" Name=\"Coordinates\" NumberOfComponents=\"3\" format=\"ascii\">\n";
+        out << "</PointData><Points><DataArray type=\""<<pointType<<"\" Name=\"Coordinates\" NumberOfComponents=\"3\" format=\"ascii\">\n";
         nodes([&](std::size_t q) { out << g.coordinates[q][0] << " 0 " << g.coordinates[q][1] << ' '; });
         out << "\n</DataArray></Points></Piece></StructuredGrid></VTKFile>\n";
         out.close();
@@ -171,7 +181,7 @@ bool readModelVts(const std::filesystem::path &path, ModelDocument &document, st
             require(it != arrays.end() && it->second.size() == 1, std::string("Missing model parameter: ") + key);
             return it->second[0];
         };
-        const int version=integer(scalar("SeisWaveModel2DVersion"),1,2);
+        const int version=integer(scalar("SeisWaveModel2DVersion"),1,7);
         ModelDocument next;
         auto &p = next.parameters;
 #define REAL(member) p.member = scalar("Parameter_" #member)
@@ -192,13 +202,21 @@ bool readModelVts(const std::filesystem::path &path, ModelDocument &document, st
         const auto &direction = arrays.at("SourceDirection");
         require(direction.size() == 3, "Invalid source direction.");
         std::copy(direction.begin(), direction.end(), p.source.direction.begin());
+        if(version>=6){const auto& kernel=arrays.at("PhysicalSourceKernelM");require(kernel.size()==2&&
+            ((version>=7&&kernel[0]==0&&kernel[1]==0)||(kernel[0]>0&&kernel[1]>=kernel[0]&&p.source.kind==SeisWave::SourceKind::DirectionalForce)),"Invalid physical source kernel metadata.");p.sourceSigmaM=kernel[0];p.sourceRadiusM=kernel[1];}
+        if(version>=7){const auto& layout=arrays.at("SurfaceReceiverLayout");require(layout.size()==2,"Invalid surface receiver policy.");
+            p.autoSurfaceReceivers=integer(layout[0],0,1)!=0;p.receiverTargetCount=integer(layout[1],0,1024);}
         const auto &layers = arrays.at("LayersThicknessVpVsDensity");
         require(layers.size() % 4 == 0 && layers.size() <= 64, "Invalid model layer table.");
         p.layers.clear();
         for (std::size_t i = 0; i < layers.size(); i += 4) p.layers.push_back({layers[i], layers[i+1], layers[i+2], layers[i+3]});
-        if(version==2){const auto& q=arrays.at("GSLSSettings");require(q.size()==7,"Invalid GSLS settings.");p.attenuation={integer(q[0],0,1)!=0,integer(q[1],1,3),q[2],q[3],q[4],q[5],q[6]};
+        if(version>=2){const auto& q=arrays.at("GSLSSettings");require(q.size()==7,"Invalid GSLS settings.");p.attenuation={integer(q[0],0,1)!=0,integer(q[1],1,3),q[2],q[3],q[4],q[5],q[6]};
             require(SeisWave::Rheology::validateSettings(p.attenuation,error),error.c_str());const auto& layerQ=arrays.at("LayerQpQs");require(layerQ.size()==2*p.layers.size(),"Layer Q table differs from material table.");
             for(std::size_t i=0;i<p.layers.size();++i){p.layers[i].qp=layerQ[2*i];p.layers[i].qs=layerQ[2*i+1];}}
+        if(version>=5)p.precision=static_cast<Precision>(integer(scalar("CalculationPrecision"),0,1));
+        if(version>=4)p.externalAbsorption=integer(scalar("ExternalAbsorption"),0,1)!=0;
+        if(version>=3){const auto& a=arrays.at("CfsPmlSettings");require(a.size()==4,"Invalid CFS-PML metadata.");p.absorber=static_cast<Absorber>(integer(a[0],0,1));p.cpml={a[1],a[2],a[3]};
+            require(p.cpml.targetReflection>=1e-8&&p.cpml.targetReflection<=.1&&p.cpml.kappaMax>=1&&p.cpml.kappaMax<=20&&p.cpml.frequency>=0&&p.cpml.frequency<=1e6,"Invalid CFS-PML profile settings.");}
         const auto &samples = arrays.at("SurfaceSamplesXElevation");
         require(samples.size() % 2 == 0, "Invalid model surface samples.");
         p.surfaceSamples.clear();
@@ -217,12 +235,12 @@ bool readModelVts(const std::filesystem::path &path, ModelDocument &document, st
         for (const auto *name : pointNames) {
             const auto a = tag(in);
             require(a.starts_with("<DataArray ") && attribute(a, "Name") == name, "Missing model point array.");
-            readArray(in, a, &hash, count, false);
+            readArray(in, a, &hash, count, false,version>=5);
         }
         expected(in, "</PointData>"); expected(in, "<Points>");
         const auto coordinates = tag(in);
         require(attribute(coordinates, "Name") == "Coordinates" && attribute(coordinates, "NumberOfComponents") == "3", "Invalid model coordinates.");
-        readArray(in, coordinates, &hash, count * 3, false);
+        readArray(in, coordinates, &hash, count * 3, false,version>=5);
         expected(in, "</Points>"); expected(in, "</Piece>"); expected(in, "</StructuredGrid>"); expected(in, "</VTKFile>");
         in >> std::ws;
         require(in.peek() == std::char_traits<char>::eof(), "Unexpected trailing VTS content.");

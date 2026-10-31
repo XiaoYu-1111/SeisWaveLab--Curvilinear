@@ -1,12 +1,34 @@
 <p align="center"><img src="resources/icons/seis3d.png" width="112" alt="SeisWave Lab Curvilinear 软件图标"></p>
 
+2026-10-31正演采集更新：声学P1/DRP与弹性/黏弹性支持随模型自动沿地表均匀布设检波器，期望/实际道数分别保存；可切回手动，模型VTS保留设置，旧模型采集线保持兼容。[操作与验证](docs/FORWARD_SURFACE_RECEIVERS_2D.md)。
+
+2026-10-31 RTM交互更新：新增顶部及固定底部重建按钮，接收起点/道数/间隔/深度设置，默认随模型修改自动沿地表均匀布设；旧成像结果与新模型分开显示，支持再次运行。[操作、截图与验证](docs/RTM_2D.md)。
+
+2026-10-31高阶声学升级：新增独立CPU/CUDA、FP32/FP64曲网格DRP7–RK4试验核，含零压力自由面、外扩ADE-CPML、震源正则化及选择性数值耗散。解析/界面/吸收与八项回归通过；15/30 Hz局部对照未通过5%等误差门槛，P1继续默认，RTM保持P1。[实现、实测与下一阶段门槛](docs/ACOUSTIC_DRP_2D.md)。
+
+2026-10-31补充：声学默认自动RAM预算，切换CPU/CUDA及精度立即刷新容量，修复重建几何内存重复计数；真实界面CUDA FP32 5000×2000完成8步容量验收。新增“采集 → 地表均匀布设”，并补充有限元与高阶差分的取舍。[说明与验证](docs/ACOUSTIC_CAPACITY_AND_METHOD.md)。
+
+二维界面按功能分组工具栏；声学/弹性共用地形与分层编辑，声学自动估算内存网格上限并支持压力SEG-Y，RTM可查看运行过程。[本轮更新与验证](docs/WORKFLOW_UPGRADE_2D.md)。
+
+二维弹性、黏弹性和声学支持吸收区真实波场显示（B），保留浅橙边界颜色并可调不透明度。[最新显示说明与验证](docs/ABSORBER_DISPLAY_2D.md)。
+
+二维声学正演现默认**模型＋波场叠加**及目标域外**CFS-CPML**，记录复用弹性波面板，支持单道、道集和AGC预览；W切换叠加/模型/压力。六组受控模型的边界残差相对旧海绵降低23.9–70.0 dB，方法与适用范围见[声学CPML验收报告](docs/ACOUSTIC_CPML_2D.md)。RTM边界保持独立。
+
 # SeisWave Lab · Curvilinear
 
-**面向起伏地表与近地表结构研究的二维 / 三维曲网格弹性波模拟工作台。**
+**面向起伏地表与近地表结构研究的曲网格波场模拟工作台：二维声学、弹性与黏弹性，三维弹性。**
 
 本项目将地形贴体网格、弹性波正演、CPU / CUDA 计算与交互显示组织在同一工作流中，支持从模型与采集参数设置，到波场观察、地震记录导出和实验重绘。二维用于剖面机理分析与参数筛选，三维用于局部空间传播与观测几何研究。
 
-技术栈：**C++20 · CUDA Float64 · OpenMP · OpenGL 4.3 · Dear ImGui Docking · ImPlot · CMake · Python / Jupyter**。
+二维正演已增加**声学 / P、弹性 / P–SV、黏弹性 / Qp–Qs**三种模式选择。声学采用与RTM共享的独立P1有限元压力核，支持CPU/CUDA、FP32/FP64、高程/模型载入、后台波场/记录、VTS复现与导出；不是把弹性Vz删掉S波。5001×2001、2 m、Vp最低500 m/s的FP32八步容量验证新CPML设备数组约655 MiB（旧海绵约595 MiB），尚非完整工区正演。用途、方法差异及验收见[二维三种正演模式](docs/ACOUSTIC_FORWARD_2D.md)，三维目前仍为原弹性模式。
+
+技术栈：**C++20 · CUDA · 二维FP32/FP64（默认FP64）· 三维FP64 · OpenMP · OpenGL 4.3 · Dear ImGui Docking · ImPlot · CMake · Python / Jupyter**。
+
+“模块 → 声学 / P”现归并声学正演与 RTM 两项任务；弹性/黏弹性保留独立入口。菜单增加下拉三角；声学/RTM采用顶部运行条、左侧分类和下方记录布局，支持独立悬浮参数。普通切换不覆盖参数，只有“复制模型到”显式深拷贝输入。架构与回归见[二维模块组织](docs/MODULE_ARCHITECTURE_2D.md)。
+
+独立的“声学 RTM 与照明”工作区：可显式复制模型与地形，提供 CPU/CUDA、FP32/FP64 声学压力 RTM、源照明、检查点回放及实验导出。首版为单独的 P1 有限元声学基准，已做伴随点积、已知界面、检查点和后端对照；暂不成像原弹性 Vx/Vz 数据，不包含 Q、LSRTM 或生产资料流程。入口、截图及实测限制见[二维 RTM 与源照明](docs/RTM_2D.md)。
+
+二维现可在“运行 → 计算核心”切换FP32/FP64，模型、波场、RK及GSLS/PML数组同步选择精度；构建和诊断保留双精度。5001×2001、三支路GSLS+PML的FP32设备数组实测约5.45 GiB；极弱长尾仍有精度限制，默认不变。原始误差、CPU/GPU速度与容量见[二维精度实测](docs/PRECISION_2D.md)。
 
 [项目背景](#项目背景) · [方法原理](#方法原理) · [项目架构](#项目架构) · [实现与实验流程](#实现与实验流程) · [界面效果](#界面效果) · [应用场景](#应用场景) · [构建与运行](#构建与运行) · [验证与升级方向](#验证与升级方向) · [参考文献](#参考文献)
 
@@ -78,10 +100,10 @@ $$
 | 时间推进 | 四阶段加权组合，在阶段内及完整步间调度差分方向 |
 | 曲面几何 | 坐标差分计算度量与 Jacobian，再构造物理导数 |
 | 自由表面 | 局部零牵引闭合、度量加权牵引镜像及近表面处理 |
-| 外边界 | 侧面、底部可调海绵吸收；顶面保持自由表面 |
+| 外边界 | 二维海绵 / [CFS-PML（ADE）及外扩吸收网格](docs/CFS_PML_2D.md)，保留完整目标模型；三维可调海绵，顶面自由表面 |
 | 震源 | Ricker 子波，定向体力或各向同性爆炸矩源 |
 | 时间步 | 根据几何、波速、CFL、阻尼及源采样约束确定 |
-| 数值精度 | CPU 与 CUDA 求解状态采用 Float64 |
+| 数值精度 | 二维CPU/CUDA可选FP32/FP64，模型和状态同精度；默认FP64。三维保持FP64 |
 
 传播差分、几何差分和边界闭合各有误差来源，项目不将整套实现笼统标为全局四阶。侧底海绵吸收的厚度与强度共同影响边界表现，增宽不能直接等同于吸收率提高。
 
@@ -99,18 +121,28 @@ flowchart TB
     EXP[二维命令行实验入口]
     MASW[面波配置队列与实时界面]
     S2[二维 Simulation：五场 P–SV]
+    AF[二维声学正演]
+    RTM[声学 RTM 与照明]
+    AC[独立声学压力核]
     S3[三维 Simulation：九场弹性波]
     CPU[CPU / OpenMP]
-    GPU[CUDA：单 GPU / Float64]
+    GPU[CUDA：单 GPU / 二维FP32或FP64 / 三维FP64]
     COMMON[共享组件：设备、差分、震源、记录与界面]
     DATA[模型 / 波场 VTS、原始 CSV、二维 SEG-Y]
     PY[Python / Jupyter：DEM、对比绘图、频散与反演结果分析]
     GUI --> S2
+    GUI --> AF
+    GUI --> RTM
+    AF --> AC
+    RTM --> AC
     GUI --> S3
     EXP --> S2
     MASW --> S2
     S2 --> CPU
     S2 --> GPU
+    AC --> CPU
+    AC --> GPU
+    AC --> DATA
     S3 --> CPU
     S3 --> GPU
     COMMON -.-> GUI
@@ -128,6 +160,7 @@ flowchart TB
 | 应用与界面运行时 | 主页、工作区切换、窗口、主题及语言 | [Application.cpp](src/common/ui/Application.cpp)、[AppRuntime.cpp](src/common/ui/AppRuntime.cpp) |
 | 二维工作台 | 参数编辑、采集、运行、波场与记录显示 | [Workbench2D.cpp](src/two_d/ui/Workbench2D.cpp) |
 | 二维数值核心 | 参数检查、曲网格、介质、时间推进与采样 | [CurvilinearSolver2D.cpp](src/two_d/CurvilinearSolver2D.cpp)、[公共接口](include/Seis2D/CurvilinearSolver2D.hpp) |
+| 声学正演与RTM | 独立目标与界面，RTM单向依赖声学压力核；各自维护运行状态 | [AcousticSolver2D.cpp](src/two_d/acoustic/AcousticSolver2D.cpp)、[Imaging2D.cpp](src/two_d/imaging/Imaging2D.cpp) |
 | 三维数值核心 | 三维网格、九场状态与求解会话 | [CurvilinearSolver.cpp](src/three_d/CurvilinearSolver.cpp) |
 | CUDA 后端 | 维度专用设备数组与计算内核 | [二维 CUDA](src/two_d/CudaEngine2D.cu)、[三维 CUDA](src/three_d/CudaEngine3D.cu) |
 | 共用计算定义 | 设备枚举、差分系数、源机制及数据约定 | [FiniteDifference.hpp](include/SeisCommon/FiniteDifference.hpp)、[SourceMechanism.hpp](include/SeisCommon/SourceMechanism.hpp) |
@@ -244,9 +277,11 @@ Notebook 通过参数单元格指定输入和输出路径，共享 `seisplot` �
 | 数值算法与软件开发 | CPU / CUDA 对照、网格加密、扩域与边界测试 | 波形误差、相位、振幅、内存和推进耗时 |
 | 教学与技术交流 | 交互修改地形、介质和采集参数 | 波型识别、参数影响和可复现实验展示 |
 
-二维适合先筛选方案，三维再检查局部空间效应。涉及生产部署时，需结合现场试验炮与近地表调查校准模型；当前没有内置生产静校正、叠前偏移或完整采集照明模块。
+二维适合先筛选方案，三维再检查局部空间效应。涉及生产部署时，需结合现场试验炮与近地表调查校准模型；当前新增的声学 RTM 与源照明是受控合成基准，尚无实测资料偏移、生产静校正或完整炮检联合照明流程。
 
 ### 已有性能数据
+
+**最新二维性能测试（2026-10-29）**：CPU固定32个OpenMP线程，GPU使用用户确认开启的厂商性能模式；比较FP32/FP64、256²/1024²/1536²/2048²、弹性及3支路GSLS+CFS-PML，每组合5次。155次运行成功，2048² GSLS的CPU FP64因当前空闲内存不足被预检拒绝5次。2048²弹性的GPU同精度加速为FP64约2.68×、FP32约7.12×；GSLS的FP32约8.69×。实际功率、利用率、内存、误差检查和全部曲线见[最新二维性能报告](docs/PERFORMANCE_PRECISION_2D.md)。GPU上限由固件管理，不能把本轮称为已强制锁定140 W的测试。
 
 仓库保留 2026-10-19 的二维 / 三维 CPU–CUDA 基准：i9-13900HX、OpenMP 32 线程、RTX 4060 Laptop GPU、Release / Float64，每个尺寸与后端重复五次。
 
@@ -299,14 +334,14 @@ cmake --build --preset x64-Release --parallel
 
 已有验证覆盖几何与参数检查、选定算例的物理传播、CPU / CUDA 一致性、模型交换和记录回读。验证入口通过 CTest 组织，证据及限制见[数值验证状态](docs/NUMERICS_AND_VALIDATION.md)。稳定运行、后端一致和物理精度分别评估。
 
-当前建模对象是均匀或分层、各向同性固体；二维新增可选的 [Qp/Qs GSLS 黏弹性模块](docs/QP_QS_VISCOELASTIC_2D.md)，三维仍为无显式 Q 的弹性模拟。支持实际地表 VTI/VTS 与自包含模型 VTS 重建。任意外部体物性模型、各向异性、三维黏弹性、局部加密、多 GPU 与断点续算仍待实现。当前侧底为海绵吸收，上游完整 CFS-PML / MPI 尚未整体移植。
+当前建模对象是均匀或分层、各向同性固体；二维新增可选的 [Qp/Qs GSLS 黏弹性模块](docs/QP_QS_VISCOELASTIC_2D.md)及[侧底 CFS-PML（ADE）](docs/CFS_PML_2D.md)，两者可联合使用并完成受控测试。三维仍为无显式 Q 的弹性模拟及海绵吸收。支持实际地表 VTI/VTS 与自包含模型 VTS 重建。任意外部体物性模型、各向异性、三维黏弹性与 PML、局部加密、多 GPU、MPI 与断点续算仍待实现。
 
 后续升级可围绕以下顺序推进：
 
 1. **补齐精度证据**：标准 P / S 与 Rayleigh 波参考解、反射转换系数、网格收敛和边界反射率。
 2. **统一实验配置**：将专项入口的模型与采集参数抽出，形成 GUI / 命令行共用的配置格式、队列和日志。
 3. **改善大模型运行**：降低重建峰值内存、控制导出开销，完善运行时路径配置与断点保存。
-4. **扩展物理与几何**：在验证基础上研究 CPML / CFS-PML、Q 衰减、三维地形与复杂体模型。
+4. **扩展物理与几何**：扩大二维 CFS-PML / Q 验证范围，研究三维 PML / Q、复杂体模型和收敛误差。
 5. **完善分析衔接**：统一观测几何、频散曲线与反演结果的交换约定，形成正演—处理—恢复评价流程。
 
 ## 文档与开发入口

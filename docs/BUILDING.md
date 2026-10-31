@@ -8,6 +8,8 @@
 
 `seis2d_curvilinear_core`、`seis3d_curvilinear_core` 分别链接共享 `seis_compute`；二维核心不链接三维核心。启用 CUDA 时分别链接 `seis2d_cuda`、`seis3d_cuda`，设备探测由 `seis_compute_cuda` 提供。`seis2d_ui`、`seis3d_ui` 链接本维度核心及 `seis_ui_common`，最终组合为 `SeisWaveLab_Curvilinear.exe`。VS 中各目标按真实源码目录分组。关闭 CUDA 时两个核心均可使用 CPU；`seis2d_validation` 验证二维方程及后端一致性。
 
+二维新增 `seis2d_acoustic_core`、`seis2d_acoustic_cuda`、`seis2d_imaging_core` 和对应两个独立UI目标。RTM单向依赖声学核；弹性核心不依赖它们；通用图形运行时不依赖二维模型交换服务。显式交换由应用层 `seis2d_model_exchange` 提供，目录和验收入口见[二维模块架构](MODULE_ARCHITECTURE_2D.md)。
+
 `seis_records` 提供独立 SEG-Y 读写，不依赖 CUDA 或图形上下文；`seis_record_io_validation` 检查数据交换。二维/三维共享的 `RecordView` 位于 `src/common/ui`，三维 `RecordView3D` 是兼容包装。SEG-Y 模块采用标准库实现，不增加外部 SEG-Y SDK 依赖。导入文件及导出限制见[记录与 SEG-Y](SEGY_AND_RECORDS.md)。
 
 ## 独立仓库与外部输出
@@ -47,6 +49,18 @@ Debug 使用对应的 `x64-Debug` 预设。旧版 VS 可使用仓库内 `CMakeSe
 无 CUDA Toolkit 时运行 `cmake --preset x64-Release -DSEIS3D_ENABLE_CUDA=OFF`；无图形 SDK 时再加 `-DSEIS3D_BUILD_GUI=OFF`，仍可构建 CPU 命令行和数值验证。重新配置预设会恢复其中显式设置的值。Linux GUI 使用系统 OpenGL、glfw3、GLEW 包；当前实际构建验证以 Windows 为主。
 
 从旧外层入口迁移时，缓存中的 `CMAKE_HOME_DIRECTORY` 不同。先将原 Release/Debug 构建树移至外层 out 的备份目录，再从本仓库重新配置；保留现有 EXE 和模拟数据。不要对同一个缓存交替使用外层与仓库两个入口。
+
+## 日常运行构建与Release目录清理
+
+日常更新运行程序可使用以下构建预设，避免重新生成全部开发验证工具：
+
+```powershell
+cmake --build --preset x64-Release-runtime --parallel
+```
+
+该预设保留主界面、MASW工具、二维常规/Q值/黄土先导实验入口及三维命令行入口，共6个EXE。DLL、examples、shaders、licenses仍位于原运行目录。`x64-Release`全量构建仍保留全部验证/基准目标；清理测试EXE后，执行CTest前应先全量构建或构建对应测试目标。
+
+`tools/clean_release_executables.ps1`默认只预览；加`-Apply`仅删除Release目录下已识别的开发/测试EXE，不递归删除文件，不修改DLL和用户数据，未识别程序保留。2026-10-30清理39个开发EXE，释放约37.08 MiB；逐文件SHA-256及保留清单记录在外层`out/maintenance/release-executable-cleanup.json`。完整源码和资源保留，开发程序可重建。
 
 ## CUDA 架构
 

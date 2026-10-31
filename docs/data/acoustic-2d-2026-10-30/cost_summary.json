@@ -1,0 +1,98 @@
+[
+  {
+    "nx": 161,
+    "nz": 81,
+    "backend": "CPU4",
+    "mode": "acoustic",
+    "repeats": 3,
+    "compute_ms_median": 5.7506,
+    "compute_ms_min": 5.2633,
+    "compute_ms_max": 5.779,
+    "device_arrays_bytes": 0,
+    "caution": "Unwarmed short software-path comparison; not equal-error/fidelity or sustained performance."
+  },
+  {
+    "nx": 161,
+    "nz": 81,
+    "backend": "CPU4",
+    "mode": "elastic",
+    "repeats": 3,
+    "compute_ms_median": 804.9445,
+    "compute_ms_min": 804.0953,
+    "compute_ms_max": 806.6791,
+    "device_arrays_bytes": 0,
+    "caution": "Unwarmed short software-path comparison; not equal-error/fidelity or sustained performance."
+  },
+  {
+    "nx": 161,
+    "nz": 81,
+    "backend": "GPU",
+    "mode": "acoustic",
+    "repeats": 3,
+    "compute_ms_median": 2.4348,
+    "compute_ms_min": 2.4014,
+    "compute_ms_max": 2.7069,
+    "device_arrays_bytes": 1339593,
+    "caution": "Unwarmed short software-path comparison; not equal-error/fidelity or sustained performance."
+  },
+  {
+    "nx": 161,
+    "nz": 81,
+    "backend": "GPU",
+    "mode": "elastic",
+    "repeats": 3,
+    "compute_ms_median": 30.8656,
+    "compute_ms_min": 30.8188,
+    "compute_ms_max": 31.5232,
+    "device_arrays_bytes": 4391360,
+    "caution": "Unwarmed short software-path comparison; not equal-error/fidelity or sustained performance."
+  },
+  {
+    "nx": 401,
+    "nz": 201,
+    "backend": "CPU4",
+    "mode": "acoustic",
+    "repeats": 3,
+    "compute_ms_median": 14.6001,
+    "compute_ms_min": 14.4821,
+    "compute_ms_max": 15.1086,
+    "device_arrays_bytes": 0,
+    "caution": "Unwarmed short software-path comparison; not equal-error/fidelity or sustained performance."
+  },
+  {
+    "nx": 401,
+    "nz": 201,
+    "backend": "CPU4",
+    "mode": "elastic",
+    "repeats": 3,
+    "compute_ms_median": 2167.8409,
+    "compute_ms_min": 2166.6308,
+    "compute_ms_max": 2219.3533,
+    "device_arrays_bytes": 0,
+    "caution": "Unwarmed short software-path comparison; not equal-error/fidelity or sustained performance."
+  },
+  {
+    "nx": 401,
+    "nz": 201,
+    "backend": "GPU",
+    "mode": "acoustic",
+    "repeats": 3,
+    "compute_ms_median": 4.419,
+    "compute_ms_min": 3.5243,
+    "compute_ms_max": 81.5538,
+    "device_arrays_bytes": 6163485,
+    "caution": "Unwarmed short software-path comparison; not equal-error/fidelity or sustained performance."
+  },
+  {
+    "nx": 401,
+    "nz": 201,
+    "backend": "GPU",
+    "mode": "elastic",
+    "repeats": 3,
+    "compute_ms_median": 88.2117,
+    "compute_ms_min": 68.6462,
+    "compute_ms_max": 214.9413,
+    "device_arrays_bytes": 19351224,
+    "caution": "Unwarmed short software-path comparison; not equal-error/fidelity or sustained performance."
+  }
+]

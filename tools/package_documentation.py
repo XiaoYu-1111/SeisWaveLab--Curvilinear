@@ -23,7 +23,8 @@ CODE = re.compile(r'(```[\s\S]*?```|`[^`\n]*`)')
 def references(text):
     return TOKEN.findall(CODE.sub('',text))
 TITLE = 'SeisWave Lab：曲网格二维与三维弹性波模拟的理论、实现与应用'
-UPDATED = '2026-10-27'
+UPDATED = '2026-10-31'
+CAPTURE_DATE = '2026-10-27'
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -75,7 +76,7 @@ def main():
             pixels=im.convert('RGB').tobytes()
         row.update(png=png.name,sha256=digest(png),pixel_sha256=hashlib.sha256(pixels).hexdigest())
         shutil.copy2(png,DOCS/'images'/png.name)
-    metadata=dict(version='0.16.0',date=UPDATED,recorded_three_d_capture_date=UPDATED,recorded_two_d_capture_date=UPDATED,theme='Red Yellow Orange',pixel_processing='Fresh full-window native framebuffer captures; lossless PNG; no crop, resize or recolor',captures=rows)
+    metadata=dict(version='0.16.0',date=UPDATED,recorded_three_d_capture_date=CAPTURE_DATE,recorded_two_d_capture_date=CAPTURE_DATE,theme='Red Yellow Orange',pixel_processing='Fresh full-window native framebuffer captures; lossless PNG; no crop, resize or recolor',captures=rows)
     shutil.copy2(SHOTS/'dispersion-comparison.png',DOCS/'images/dispersion-comparison.png')
 
     selected_docs={p.name for p in (ROOT/'docs').glob('*.md') if p.name!='README.md'}
@@ -98,6 +99,10 @@ def main():
             bang,label,target=match.groups()
             if target.startswith(('https:','http:','#','mailto:')): return match.group()
             path,_,anchor=target.partition('#');resolved=(source.parent/path).resolve()
+            # Tool READMEs may link to local experiments outside the standalone
+            # repository. Do not pull user datasets/results into documentation.
+            if resolved.is_relative_to(OUTPUT):
+                return f'{label}（工作区本地资料，未随离线包分发）'
             if not resolved.is_file(): raise ValueError(f'Missing local reference: {source}: {target}')
             dest=mapped(resolved)
             linked_files.add(dest)
@@ -180,13 +185,13 @@ def main():
     cards=[]
     for row in rows+rows2d:
         label=image_labels.get(row['image'],labels2d.get(row['image'],row['image']))
-        cards.append(f'<section><h2>{html.escape(label)}</h2><p>{row["published_size"][0]}×{row["published_size"][1]} · 红黄橙 · {UPDATED}</p><a href="images/{row["png"]}"><img loading="lazy" src="images/{row["png"]}" alt="{html.escape(label)}"></a></section>')
+        cards.append(f'<section><h2>{html.escape(label)}</h2><p>{row["published_size"][0]}×{row["published_size"][1]} · 红黄橙 · {CAPTURE_DATE}</p><a href="images/{row["png"]}"><img loading="lazy" src="images/{row["png"]}" alt="{html.escape(label)}"></a></section>')
     cards.append('<section><h2>二维 / 三维主页</h2><a href="images/two-d-home.png"><img loading="lazy" src="images/two-d-home.png" alt="主页"></a></section>')
     gallery_html='<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>SeisWave Lab 完整窗口截图</title><style>body{font:16px "Microsoft YaHei",sans-serif;margin:0;background:#fff5e7;color:#382118}header{background:linear-gradient(120deg,#a52218,#e57724);color:white;padding:30px}main{margin:auto;max-width:1900px;padding:20px}section{margin:0 0 28px;background:white;border:1px solid #efd3ae;padding:18px}h2{font-size:22px;color:#a52218}img{width:100%;height:auto}p{line-height:1.8}</style><header><h1>SeisWave Lab · 完整窗口图集</h1><p>2026-10-27重新采集34张界面图，原生2560×1494，无裁切与拉伸。红黄橙主题；波场与接收记录沿用原有彩色显示，地表使用turbo。点击图片可查看完整原图。</p></header><main>'+''.join(cards)+'</main></html>'
     (DOCS/'SCREENSHOT_GALLERY.html').write_text(gallery_html,encoding='utf-8')
 
     for name in ['LICENSE','THIRD_PARTY_NOTICES.md']: shutil.copy2(ROOT/name,DOCS/name)
-    (DOCS/'README.md').write_text('# SeisWave Lab 图文说明\n\n[用户手册](USER_GUIDE.md) 提供实际操作与数据复现；[完整说明](PROJECT_MANUAL.md) 按背景、原理、实现过程、界面介绍和附录组织，包含数学推导、算例条件、数据定义与参考文献。[采集生产应用分析](ACQUISITION_PRODUCTION_VALUE.md) 说明黄土塬试验用途与能力边界；[性能报告](PERFORMANCE_BENCHMARK.md) 和 [当前验证](NUMERICS_AND_VALIDATION.md) 提供计时及证据。[界面与模拟过程图集](SCREENSHOT_GALLERY.md) 收录34张2026-10-27新采集的红黄橙主题完整窗口图，正文另有内点频散分析图，图像均在 images 目录。\n\n本文区分数学模型、当前实现和已有证据范围，不以运行完成或后端一致代替物理精度验证。普通 Markdown 阅读器需启用数学公式渲染。软件许可和来源见随附 LICENSE 与 THIRD_PARTY_NOTICES.md。\n',encoding='utf-8')
+    (DOCS/'README.md').write_text('# SeisWave Lab 图文说明\n\n[用户手册](USER_GUIDE.md) 提供实际操作与数据复现；[完整说明](PROJECT_MANUAL.md) 按背景、原理、实现过程、界面介绍和附录组织，包含数学推导、算例条件、数据定义与参考文献。[采集生产应用分析](ACQUISITION_PRODUCTION_VALUE.md) 说明黄土塬试验用途与能力边界；[最新二维精度性能](PERFORMANCE_PRECISION_2D.md)、[历史性能](PERFORMANCE_BENCHMARK.md)和[当前验证](NUMERICS_AND_VALIDATION.md) 提供计时及证据。[界面与模拟过程图集](SCREENSHOT_GALLERY.md) 收录34张2026-10-27新采集的红黄橙主题完整窗口图，正文另有内点频散分析图，图像均在 images 目录。\n\n本文区分数学模型、当前实现和已有证据范围，不以运行完成或后端一致代替物理精度验证。普通 Markdown 阅读器需启用数学公式渲染。软件许可和来源见随附 LICENSE 与 THIRD_PARTY_NOTICES.md。\n',encoding='utf-8')
 
     doc_files=sorted(selected_docs)+['SCREENSHOT_GALLERY.md','SCREENSHOT_GALLERY.html','README.md','LICENSE','THIRD_PARTY_NOTICES.md']+sorted(linked_files)
     for resource in sorted((ROOT/'resources/examples/elevation').rglob('*')):

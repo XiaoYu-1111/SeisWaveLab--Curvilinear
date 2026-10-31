@@ -1,0 +1,19 @@
+CPU/CUDA FP64 relative L2=0.0000000000e+00
+CPU/CUDA FP32 relative L2=0.0000000000e+00
+PASS: full-domain physical pressure / exact target crop / nonzero absorber / CPU-CUDA FP32-FP64
+Dry loess Vp=500 m/s, h=2 m, 15 Hz FP32/FP64 pressure L2=6.7885051020e-05
+Five-second FP32 CPML, kappa=3, final/early peak=2.9574985445e-07
+PASS: CPML reset / failed rebuild / checkpoint histories / auto schema 3 + legacy schemas 1/2 / backend precision
+Running wide-domain reference: homogeneous
+homogeneous: sponge=0.019635 CPML=0.000021 improvement_dB=59.532849
+Running wide-domain reference: shallow_grazing
+shallow_grazing: sponge=0.038219 CPML=0.000012 improvement_dB=69.986793
+Running wide-domain reference: corner
+corner: sponge=0.081490 CPML=0.001367 improvement_dB=35.504712
+Running wide-domain reference: terrain
+terrain: sponge=0.046077 CPML=0.002934 improvement_dB=23.920521
+Running wide-domain reference: layered
+layered: sponge=0.039570 CPML=0.000067 improvement_dB=55.462938
+Running wide-domain reference: bottom_oblique
+bottom_oblique: sponge=0.120141 CPML=0.000833 improvement_dB=43.178278
+PASS: acoustic weak-form CFS-CPML reflection audit

@@ -318,6 +318,9 @@ void RecordView::section(const RecordDataView &s, int &selected) {
                 selected = receiver;
         }
         ImPlot::EndPlot();
+        plotVisible=true;
+        plotBounds={ImGui::GetItemRectMin().x,ImGui::GetItemRectMin().y,
+                    ImGui::GetItemRectMax().x,ImGui::GetItemRectMax().y};
     }
     if (scaleBar) {
         ImGui::SameLine();
@@ -374,6 +377,9 @@ void RecordView::single(const RecordDataView &s, int selected) {
             ImGui::SetTooltip("%s", tooltip.c_str());
         }
         ImPlot::EndPlot();
+        plotVisible=true;
+        plotBounds={ImGui::GetItemRectMin().x,ImGui::GetItemRectMin().y,
+                    ImGui::GetItemRectMax().x,ImGui::GetItemRectMax().y};
     }
     finishPlotColors();
 }
@@ -387,6 +393,7 @@ void RecordView::draw(const RecordDataView &s, int &selected, const char *window
     ImGui::End();
 }
 void RecordView::drawContent(const RecordDataView &s, int &selected) {
+    plotVisible=false;
     const auto &receivers = s.traces;
     const int total = static_cast<int>(receivers.size());
     if (total < 1 || s.components.empty()) {

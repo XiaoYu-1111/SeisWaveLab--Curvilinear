@@ -1,6 +1,6 @@
 {
   "style_profile": "jingbian_15_30",
-  "output_dir": "out/replots/four_frequency",
+  "output_dir": "out/replots/四组实验_最新",
   "formats": [
     "png",
     "pdf"
@@ -139,5 +139,9 @@
         4200
       ]
     }
+  },
+  "trace_spectra": {
+    "display_max_hz": 100,
+    "window": "hann"
   }
 }

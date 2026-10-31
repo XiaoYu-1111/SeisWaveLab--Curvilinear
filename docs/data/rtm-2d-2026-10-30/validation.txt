@@ -1,0 +1,10 @@
+CPU FP64 damped curved variable-density full propagation dot error=1.1871430993e-15
+CPU FP32 dot error=1.4515477313e-06
+Horizontal interface expected=200m; imaged peak=185.000000m
+Checkpoint interval invariance L2=0.0000000000e+00
+CPU FP32 versus FP64 image L2=1.0261155611e-05
+CUDA FP32 dot error=1.4515477313e-06
+CUDA FP64 dot error=1.1871430993e-15
+CPU/CUDA FP32 image L2=0.0000000000e+00
+CPU/CUDA FP64 image L2=0.0000000000e+00
+PASS: interface / zero residual / curved DEM / checkpoint replay / CPU-CUDA / FP32-FP64 / cancellation / memory guard / exports

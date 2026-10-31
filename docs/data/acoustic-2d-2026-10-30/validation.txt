@@ -1,0 +1,5 @@
+Analytic direct P arrival (Ricker centre) 0.130556 s; observed peak 0.136000 s
+CPU FP32 / FP64 global pressure L2=1.31858865304e-05
+CPU / CUDA FP64 pressure L2=0
+CPU / CUDA FP32 pressure L2=0
+PASS: direct P arrival / zero-pressure top / Vs independence / source linearity / reset / FP32-FP64 / CPU-CUDA / DEM / budget / VTS roundtrip / CSV export

@@ -1,6 +1,7 @@
 #pragma once
 #include "Seis2D/CurvilinearSolver2D.hpp"
 #include <cmath>
+#include "CfsPml2D.hpp"
 
 namespace Seis2D::Curvilinear::Detail {
 struct MemoryBudget {
@@ -9,8 +10,10 @@ struct MemoryBudget {
 // Additional storage for a candidate session, compared against currently free
 // memory: the active session is already excluded by the OS/CUDA memory query.
 inline MemoryBudget memoryBudget(const Parameters &p, BackendKind3D kind) {
-    const double count = static_cast<double>(p.nx + 2 * ghost) * (p.nz + 2 * ghost);
+    const auto domain=domainLayout(p);
+    const double count = static_cast<double>(domain.nx + 2 * ghost) * (domain.nz + 2 * ghost);
     const bool cuda = kind == BackendKind3D::Cuda;
+    const double scalar=static_cast<double>(precisionBytes(p.precision));
     const double gradients = p.source.kind == SeisWave::SourceKind::IsotropicMoment ? 2 : 0;
     const double samples = p.sampleIntervalMs > 0
                                ? std::floor(p.duration / (p.sampleIntervalMs * .001)) + 1
@@ -24,7 +27,13 @@ inline MemoryBudget memoryBudget(const Parameters &p, BackendKind3D kind) {
     // doubles/node), but all 35 RK field arrays live only on the device. Allow
     // four extra host doubles/node for staging, display and allocation overhead.
     // CPU retains the previous conservative 60 + gradients budget.
-    return {count * ((cuda ? 18. : 60.) + gradients+qExtra+(cuda?0:stateExtra)) * sizeof(double) + records,
-            cuda ? count * (48. + gradients+(p.attenuation.enabled?2.0*p.attenuation.mechanisms:0)+stateExtra) * sizeof(double) : 0};
+    const double pmlState=7.*cpmlScalars(p)*scalar;
+    const double pmlProfiles=usesCfsPml(p)?3.*(domain.nx+domain.nz)*scalar:0;
+    // Geometry/material construction uses FP64 temporarily, then releases each
+    // double array while converting. Include that peak even for a FP32 GPU session.
+    const double hostPerPoint=std::max(((cuda?18.:60.)+gradients+qExtra+(cuda?0:stateExtra))*scalar,
+                                    (14.+gradients+qExtra)*sizeof(double)+2*scalar);
+    return {pmlProfiles+(cuda?0:pmlState)+count*hostPerPoint+records,
+            cuda ? pmlState+pmlProfiles+count*(48.+gradients+(p.attenuation.enabled?2.0*p.attenuation.mechanisms:0)+stateExtra)*scalar : 0};
 }
 } // namespace Seis2D::Curvilinear::Detail

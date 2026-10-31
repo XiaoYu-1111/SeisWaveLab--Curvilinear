@@ -1,0 +1,9 @@
+PASS: FP64 absorber=0 GSLS=0 Vz/Vx/speed/pressure exact target crop; nonzero exterior; CUDA=1
+PASS: FP64 absorber=0 GSLS=1 Vz/Vx/speed/pressure exact target crop; nonzero exterior; CUDA=1
+PASS: FP64 absorber=1 GSLS=0 Vz/Vx/speed/pressure exact target crop; nonzero exterior; CUDA=1
+PASS: FP64 absorber=1 GSLS=1 Vz/Vx/speed/pressure exact target crop; nonzero exterior; CUDA=1
+PASS: FP32 absorber=0 GSLS=0 Vz/Vx/speed/pressure exact target crop; nonzero exterior; CUDA=1
+PASS: FP32 absorber=0 GSLS=1 Vz/Vx/speed/pressure exact target crop; nonzero exterior; CUDA=1
+PASS: FP32 absorber=1 GSLS=0 Vz/Vx/speed/pressure exact target crop; nonzero exterior; CUDA=1
+PASS: FP32 absorber=1 GSLS=1 Vz/Vx/speed/pressure exact target crop; nonzero exterior; CUDA=1
+PASS: asynchronous full/target/component cache requests and raw state invariance

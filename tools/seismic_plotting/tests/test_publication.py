@@ -6,7 +6,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import seisplot
 import numpy as np
 from matplotlib import pyplot as plt
-from seisplot.publication import resolve_style,reference_lines,ordered_components
+from seisplot.publication import resolve_style,reference_lines,ordered_components,prepare_journal_figure
 from seisplot.core import gain,gather_image,symlog
 from seisplot.io import Gather
 
@@ -62,6 +62,23 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaises(ValueError):resolve_style({'snapshots':{'scale_scope':'fixed'}})
         norm=symlog(2e-5,.01)
         np.testing.assert_allclose(norm([-2e-5,0,2e-5]),[0,.5,1])
+
+    def test_journal_layout_keeps_colormap_norm_and_data(self):
+        cfg=resolve_style({'style_profile':'jingbian_15_30','journal_layout':'ogp_single'})
+        self.assertEqual(resolve_style(cfg),cfg)
+        self.assertEqual(cfg['record_cmap'],'gray')
+        self.assertEqual(cfg['models']['cmap'],'turbo')
+        self.assertEqual(cfg['snapshots']['cmap'],'coolwarm')
+        self.assertEqual(cfg['snapshots']['vmax_m_s'],2e-5)
+        data=np.array([[-2.,0,2.],[-1.,0,1.]])
+        fig,ax=plt.subplots(figsize=(7,4),layout='constrained')
+        im=ax.imshow(data,cmap=cfg['snapshots']['cmap'],vmin=-2,vmax=2)
+        self.assertTrue(prepare_journal_figure(fig,cfg))
+        self.assertAlmostEqual(fig.get_figwidth()*25.4,81.5)
+        self.assertEqual(im.get_clim(),(-2,2))
+        self.assertEqual(im.get_cmap().name,'coolwarm')
+        np.testing.assert_array_equal(im.get_array(),data)
+        with self.assertRaises(ValueError):resolve_style({'journal_layout':'not-a-layout'})
 
 
 if __name__=='__main__':unittest.main()

@@ -1,0 +1,262 @@
+{
+  "date": "2026-10-28",
+  "default_precision": "FP64",
+  "related_ctests_passed": 10,
+  "host": {
+    "cpu": "13th Gen Intel(R) Core(TM) i9-13900HX",
+    "logical_processors": 32,
+    "ram_bytes": 16978403328,
+    "os": "Windows-11-10.0.26300-SP0"
+  },
+  "max_relative_l2": 0.00017181809587594,
+  "raw_records_max_relative_l2": 2.138511869043716e-06,
+  "late_records_max_relative_l2": 3.3985074683109015e-06,
+  "cpu32_cuda32_max_relative_l2": 0.0,
+  "groups": [
+    {
+      "backend": "CUDA",
+      "nx": 1024,
+      "case": "elastic_PML",
+      "fp64_ms": 26.30823,
+      "fp32_ms": 8.260968333333333,
+      "speedup": 3.1846423976527367,
+      "device_gib": [
+        0.38730716705322266,
+        0.1958288997411728
+      ],
+      "range_percent": [
+        0.9395919071712533,
+        1.4735964165621414
+      ]
+    },
+    {
+      "backend": "CUDA",
+      "nx": 1024,
+      "case": "GSLS3_PML",
+      "fp64_ms": 39.40283,
+      "fp32_ms": 15.272941666666666,
+      "speedup": 2.5799109863685943,
+      "device_gib": [
+        1.1901269257068634,
+        0.5972387790679932
+      ],
+      "range_percent": [
+        0.20885555682166712,
+        0.08341549570510066
+      ]
+    },
+    {
+      "backend": "CUDA",
+      "nx": 2048,
+      "case": "elastic_PML",
+      "fp64_ms": 104.74246666666666,
+      "fp32_ms": 32.55961666666666,
+      "speedup": 3.216944097929081,
+      "device_gib": [
+        1.4855422973632812,
+        0.7512707561254501
+      ],
+      "range_percent": [
+        3.102904138849772,
+        3.638914667811927
+      ]
+    },
+    {
+      "backend": "CUDA",
+      "nx": 2048,
+      "case": "GSLS3_PML",
+      "fp64_ms": 159.26154333333335,
+      "fp32_ms": 59.77679833333333,
+      "speedup": 2.6642702147619763,
+      "device_gib": [
+        4.606202632188797,
+        2.311600923538208
+      ],
+      "range_percent": [
+        4.442776863709494,
+        3.0530769756013774
+      ]
+    },
+    {
+      "backend": "CPU8",
+      "nx": 512,
+      "case": "elastic_PML",
+      "fp64_ms": 85.75815,
+      "fp32_ms": 90.3582,
+      "speedup": 0.9490909513469724,
+      "device_gib": [
+        0.0,
+        0.0
+      ],
+      "range_percent": [
+        2.2028810089769904,
+        0.4781525085714455
+      ]
+    },
+    {
+      "backend": "CPU8",
+      "nx": 512,
+      "case": "GSLS3_PML",
+      "fp64_ms": 153.975395,
+      "fp32_ms": 146.238715,
+      "speedup": 1.0529044583029876,
+      "device_gib": [
+        0.0,
+        0.0
+      ],
+      "range_percent": [
+        0.7905873532586334,
+        0.9456490369188445
+      ]
+    }
+  ],
+  "capacity": [
+    {
+      "case": "elastic_PML",
+      "nx": "5001",
+      "nz": "2001",
+      "compute_nodes": "10193897",
+      "backend": "CUDA",
+      "precision": "FP64",
+      "repeat": "0",
+      "warmup_steps": "8",
+      "timed_steps": "20",
+      "wall_ms": "4810.5673999999999",
+      "step_ms": "240.52837",
+      "device_payload_bytes": "3745623740",
+      "host_array_bytes": "1141885664",
+      "free_before_bytes": "7451181056",
+      "free_after_bytes": "3678404608",
+      "rhs_registers": "163",
+      "rhs_local_bytes": "368",
+      "initialization_ms": "846.40899999999999",
+      "dt": "0.00046930730242162569",
+      "status": "OK"
+    },
+    {
+      "case": "elastic_PML",
+      "nx": "5001",
+      "nz": "2001",
+      "compute_nodes": "10193897",
+      "backend": "CUDA",
+      "precision": "FP32",
+      "repeat": "0",
+      "warmup_steps": "8",
+      "timed_steps": "20",
+      "wall_ms": "1473.6563000000001",
+      "step_ms": "73.682815000000005",
+      "device_payload_bytes": "1894389616",
+      "host_array_bytes": "570942832",
+      "free_before_bytes": "7451181056",
+      "free_after_bytes": "5517606912",
+      "rhs_registers": "140",
+      "rhs_local_bytes": "240",
+      "initialization_ms": "2107.4400000000001",
+      "dt": "0.00046930730242162569",
+      "status": "OK"
+    },
+    {
+      "case": "GSLS3_PML",
+      "nx": "5001",
+      "nz": "2001",
+      "compute_nodes": "0",
+      "backend": "CUDA",
+      "precision": "FP64",
+      "repeat": "0",
+      "warmup_steps": "0",
+      "timed_steps": "0",
+      "wall_ms": "0",
+      "step_ms": "0",
+      "device_payload_bytes": "0",
+      "host_array_bytes": "0",
+      "free_before_bytes": "7451181056",
+      "free_after_bytes": "0",
+      "rhs_registers": "0",
+      "rhs_local_bytes": "0",
+      "initialization_ms": "0",
+      "dt": "0",
+      "status": "REJECTED: Insufficient VRAM for a transactional 2D rebuild. Additional budget: 11.04 GiB; available: 6.94 GiB; required free with reserve: 12.99 GiB."
+    },
+    {
+      "case": "GSLS3_PML",
+      "nx": "5001",
+      "nz": "2001",
+      "compute_nodes": "10193897",
+      "backend": "CUDA",
+      "precision": "FP32",
+      "repeat": "0",
+      "warmup_steps": "8",
+      "timed_steps": "20",
+      "wall_ms": "2711.9614999999999",
+      "step_ms": "135.59807499999999",
+      "device_payload_bytes": "5849621652",
+      "host_array_bytes": "897147536",
+      "free_before_bytes": "7451181056",
+      "free_after_bytes": "1452568576",
+      "rhs_registers": "140",
+      "rhs_local_bytes": "240",
+      "initialization_ms": "2730.2148000000002",
+      "dt": "0.00046015092950487763",
+      "status": "OK"
+    }
+  ],
+  "tail_final": {
+    "Vx": {
+      "time_s": "5",
+      "component": "Vx",
+      "relative_l2": "0.18318306555531788",
+      "relative_peak": "0.11055118596625917",
+      "reference_peak": "6.2922708192202448e-15",
+      "error_peak": "6.9561800148568316e-16",
+      "reference_energy_ratio": "4.4753579401762602e-17",
+      "fp32_energy_ratio": "3.5756443154497334e-15"
+    },
+    "Vz": {
+      "time_s": "5",
+      "component": "Vz",
+      "relative_l2": "0.020544197899214422",
+      "relative_peak": "0.15971270285842604",
+      "reference_peak": "2.162213372184562e-14",
+      "error_peak": "3.4533294182822827e-15",
+      "reference_energy_ratio": "4.4753579401762602e-17",
+      "fp32_energy_ratio": "3.5756443154497334e-15"
+    },
+    "Sxx": {
+      "time_s": "5",
+      "component": "Sxx",
+      "relative_l2": "12.295220298732129",
+      "relative_peak": "7.6874926843800289",
+      "reference_peak": "4.9711137447349289e-08",
+      "error_peak": "3.8215400545870777e-07",
+      "reference_energy_ratio": "4.4753579401762602e-17",
+      "fp32_energy_ratio": "3.5756443154497334e-15"
+    },
+    "Szz": {
+      "time_s": "5",
+      "component": "Szz",
+      "relative_l2": "14.845739204787312",
+      "relative_peak": "7.9843086992789782",
+      "reference_peak": "4.3241474907991528e-08",
+      "error_peak": "3.452532842775304e-07",
+      "reference_energy_ratio": "4.4753579401762602e-17",
+      "fp32_energy_ratio": "3.5756443154497334e-15"
+    },
+    "Sxz": {
+      "time_s": "5",
+      "component": "Sxz",
+      "relative_l2": "19.667058499971123",
+      "relative_peak": "9.6749585361234214",
+      "reference_peak": "2.1886930928304482e-08",
+      "error_peak": "2.1175514921434316e-07",
+      "reference_energy_ratio": "4.4753579401762602e-17",
+      "fp32_energy_ratio": "3.5756443154497334e-15"
+    }
+  },
+  "tail_max_error_over_main_peak": {
+    "Vx": 1.940544534886703e-07,
+    "Vz": 1.957056745216982e-07,
+    "Sxx": 1.9821029169387316e-07,
+    "Szz": 1.635531930782397e-07,
+    "Sxz": 1.5654036358619377e-07
+  }
+}

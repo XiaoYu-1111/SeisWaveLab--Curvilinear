@@ -2,6 +2,28 @@
 
 入口是三个Notebook和`run.py`。绘图算法放在同目录`seisplot/`中，15Hz/30Hz共用代码。所有当前配色及显示参数集中在[统一样式配置](styles/current_publication.json)，详细约定见[参数与色标说明](参数与色标说明.md)。
 
+## 《石油地球物理勘探》投稿图件
+
+保留现有 `style_profile` 及其数据、配色和色标设置，在 JSON 或 Notebook 参数中另外加入：
+
+```python
+CONFIG['journal_layout'] = 'ogp_double'  # 通栏；单栏用 'ogp_single'
+CONFIG['formats'] = ['png', 'pdf', 'svg']
+CONFIG['records']['individual_panels'] = True  # 可选：另存每个道集子图
+```
+
+`ogp_single` 和 `ogp_double` 的目标宽度分别为 81.5 mm 和 170 mm；按缩放后的物理尺寸重排文字，字号限制为 7～9 pt，位图以 600 dpi 导出，PDF/SVG 保留支持的矢量对象。此项仅控制显示版式与输出，原始数组、色标上下限、插值和增益策略不变。每张图仍需检查刻度、单位、标注、面板布局及打印尺寸，过密的多子图应拆分；具体分辨率和字体须以期刊最新投稿须知为准。单张数据图及分图应与论文编号、图注一起检查。解析后的具体参数与样式版本写入 `data/config_used.json`。
+
+道集设置 `individual_panels=True` 时，在四模型组合图之外逐一导出对应单栏图；各分图复用组合图的显示数组和色限，不对单幅图重新归一化。其他类型图件仍需依据实验和期刊要求分别准备分图。
+
+从高程 CSV 生成单栏图的示例（基准高程和震源坐标均须由实际实验指定）：
+
+```powershell
+python -B tools/seismic_plotting/plot_elevation.py --profile ../out/jingbian_15Hz_2m/surface_profile.csv --datum-m 1481.322148135886 --source-x-m 5000 --output-dir out/papers/投稿图件/高程剖面
+```
+
+横坐标和高程从原 CSV 读取，标记为震源的地表投影；图件及输入文件哈希、显示参数写入外层 `out`。该图不重算或修改地形。
+
 | Notebook | 输入 | 输出 |
 | --- | --- | --- |
 | [01 不同主频四组模型对比](01_不同主频四组模型对比.ipynb) | 一个或多个主频的四组SEG-Y、模型VTS、快照索引 | 原始/RMS/AGC记录、模型及浅层、同时刻波场、RMS/频谱/镜像/晚时/偏移距、反射参考和主频对比 |
@@ -15,7 +37,7 @@
 3. 从上向下执行。耗时的全模型/波场读取可通过`RUN_MODELS`、`RUN_WAVEFIELDS`关闭。
 4. 图件在输出目录的`figures/`，统计和实际配置在`data/`，可失效缓存位于`cache/`。不会写回原始模拟文件。
 
-默认分别写到项目外层`out/replots/four_frequency`、`out/replots/surface_wave`、`out/replots/inversion`。输出必须是本工作区外层`out`的子目录；可任意选择其下的文件夹。代码会拒绝向仓库、输入数据根目录或其他位置写图，遵循仓库的输出布局规则。
+默认分别写到项目外层`out/replots/四组实验_最新`、`out/replots/surface_wave`、`out/replots/inversion`。输出必须是本工作区外层`out`的子目录；可任意选择其下的文件夹。代码会拒绝向仓库、输入数据根目录或其他位置写图，遵循仓库的输出布局规则。同名输出可能被重写；新默认目录与历史0–200 Hz成果分开。
 
 Notebook会自动从当前目录向上寻找Git仓库。若从无关目录启动，在第一个代码单元格填写`REPOSITORY_ROOT`。相对输入路径以Git仓库的父目录（外层工作区）为基准，输入也支持绝对路径，包括位于其他磁盘的数据。没有硬编码`D:`或本机用户名。
 
@@ -53,7 +75,7 @@ python -B tools/seismic_plotting/run.py --kind four --config tools/seismic_plott
 python -B tools/seismic_plotting/run.py --kind four --config tools/seismic_plotting/examples/four_frequency.json --frequency 30 --steps records,metrics
 ```
 
-`--frequency`输出到`out/replots/four_frequency/15Hz`或`30Hz`，避免单频执行互相覆盖清单；不筛选时两种主频写入同一批次。`--output-dir`也可覆盖为外层out内的其他子目录。
+`--frequency`输出到`out/replots/四组实验_最新/15Hz`或`30Hz`，避免单频执行互相覆盖清单；不筛选时两种主频写入同一批次。`--output-dir`也可覆盖为外层out内的其他子目录。
 
 JSON示例是小型版本化配置，原始SEG-Y、VTS、缓存和旧PPT没有复制进Git。克隆仓库后需自行放置数据，或改为实际输入路径。`out/tools`中的10个旧绘图/补丁/后处理入口已改为转发统一工具，默认写入`out/replots`，不覆盖正式PPT；旧脚本原文和哈希归档在`out/maintenance/绘图代码整理_20261027`。历史Analyze脚本仅供数值溯源，新的常规绘图不调用。面波旧脚本保留实验来源，以本目录Notebook为常规维护入口。
 
@@ -165,3 +187,13 @@ python -B tools/seismic_plotting/check_notebooks.py --execute
 ```
 
 版本库中的Notebook清除所有执行输出。保留带输出副本时另存到外层out；不要把缓存、图件或原始数据提交进Git。
+
+## 多道频谱与平均谱
+
+Notebook 01在道集之后输出15/30 Hz各自的Vz、Vx四模型振幅频谱。汇报图横轴为0–100 Hz，线性振幅m/s，全部接收道以彩色细线叠加，平均频谱为黑色粗线。每道全时窗去均值、加Hann窗、单边FFT，除窗和修正幅度，正频率乘2（DC/Nyquist除外）。逐道取模值后进行道算术平均；不先平均波形，不施加AGC或逐道归一化，不剔除边缘道。各模型纵轴按实际幅度适配，比较幅值时需读取刻度。原metrics步骤的矢量Welch功率谱保持原口径，本图为线性振幅谱。
+
+可用`--steps spectra`单独运行。`trace_spectra.display_max_hz`只控制图面上限，默认100 Hz；旧配置`max_hz`作为显示上限兼容。`window`可选`hann`或`boxcar`。逐道及平均谱CSV保存原始频率分辨率下完整单边频谱（最高可用FFT频点不超过Nyquist频率），单位m/s；`trace_spectra_panels.json`仅存图面频段，`trace_spectra_policy.csv`同时记录显示与数据上限。0–100 Hz不是滤波。历史0–200 Hz数据仍在`out/replots/four_frequency`，正式汇报图在`out/replots/报告频谱_0-100Hz`，普通重绘不覆盖正式PPT。
+
+## Q值模型图
+
+04报告的Qp/Qs四组全域和浅层图使用`out/presentations/03_复现工程/04_Q值实验/build/plot-q-models.py`。它读取四个启用Q工况的VTS及metadata，核验源文件哈希，并按求解器的计算坐标与分层参数重建Q值；全域用真实基准深度Z，浅层显示地表下物理深度，统一plasma 0–200。它不适用于任意其他实验，参数为未标定试验值。输出PNG、PDF和来源JSON，默认写在脚本旁的`q_models`；可用`--output-dir`指定外层out内另一目录。完整命令、数据路径和复现边界见[绘图脚本使用与复现](../../../out/presentations/02_说明文档/绘图脚本使用与复现.md)。

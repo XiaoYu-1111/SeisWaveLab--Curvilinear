@@ -1,3 +1,4 @@
+#include "MenuWidgets.hpp"
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include "imgui.h"
@@ -11,6 +12,7 @@
 #include "ParameterPanelHost.hpp"
 #include "ThemeValidation.hpp"
 #include "WorkspaceTools.hpp"
+#include "SimulationTiming.hpp"
 #include <sstream>
 #include "SourceControls.hpp"
 #include "Workbench3D.hpp"
@@ -139,7 +141,7 @@ struct Workbench3D {
     bool groupsExpanded{};
     std::unordered_map<ImGuiID,int> groupApplied;
     bool running{},dirty{},resetLayout{true};
-    bool shortcutHelp{},homeRequested{};ImRect homeRect;
+    bool shortcutHelp{},homeRequested{};ImRect homeRect,elapsedRect;
     BackendMemory3D memoryAvailable;
     BackendKind3D memoryBackend{BackendKind3D::Cpu};
     int memoryDevice{-2};
@@ -556,10 +558,10 @@ struct Workbench3D {
             if(functionButton3D("Home",FunctionRole3D::Model))homeRequested=true;
             homeRect={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};ImGui::SameLine();
             ImGui::TextColored(palette3D().accent,"SEIS3D");
-            if(ImGui::BeginMenu(label3D("Workspace"))) {
+            if(SeisWave::Ui::beginDropdownMenu(label3D("Workspace"))) {
                 if(ImGui::MenuItem(label3D("Reset layout [F]")))restoreWorkspace();
                 if(workspace.menu(3,panels)){resetLayout=false;lastParameterMode=parameterHost.mode();}
-                if(ImGui::BeginMenu(language3D()?"参数面板显示":"Parameter panels")){
+                if(SeisWave::Ui::beginDropdownMenu(language3D()?"参数面板显示":"Parameter panels")){
                     if(parameterHost.menu())panels[0]=true;
                     ImGui::EndMenu();
                 }
@@ -570,7 +572,7 @@ struct Workbench3D {
                 for(int i=0;i<4;++i)if(ImGui::MenuItem(label3D(layouts[i]),nullptr,layoutPreset==i)){layoutPreset=i;resetLayout=true;}
                 ImGui::EndMenu();
             }
-            if(ImGui::BeginMenu(label3D("Appearance"))) {
+            if(SeisWave::Ui::beginDropdownMenu(label3D("Appearance"))) {
                 ImGui::TextUnformatted(tr3D("Interface font size (px)"));
                 ImGui::SliderFloat("##menuFont",&uiFontSize,16,28,"%.0f px");glassAppearanceControls3D();ImGui::EndMenu();
             }
@@ -584,8 +586,13 @@ struct Workbench3D {
         }
         const auto* vp=ImGui::GetMainViewport();
         const char* commands[]{running?"Pause [Space]":"Run [Space]","Step [N]","Clear fields [C]","Fit views [R]","Shortcuts [F1]","Apply / rebuild"};
-        float needed=0;for(int i=0;i<(dirty?6:5);++i)needed+=ImGui::CalcTextSize(tr3D(commands[i])).x+2*ImGui::GetStyle().FramePadding.x+ImGui::GetStyle().ItemSpacing.x;
-        toolbarHeight=ImGui::GetFrameHeight()+20+(needed>vp->WorkSize.x-24?ImGui::GetFrameHeightWithSpacing():0);
+        const auto elapsed=std::string(language3D()?"计算耗时：":"Compute time: ")+SeisWave::Ui::computeElapsedText(simulation->diagnostics().timing.totalStepMs);
+        char progress[128];std::snprintf(progress,sizeof(progress),"%d / %d | t %.4f s | dt %.4f ms",simulation->currentStep(),simulation->totalSteps(),simulation->currentStep()*simulation->dt(),simulation->dt()*1000);
+        const auto& style=ImGui::GetStyle();std::vector<float> widths;
+        for(int i=0;i<(dirty?6:5);++i)widths.push_back(ImGui::CalcTextSize(tr3D(commands[i])).x+2*style.FramePadding.x);
+        widths.push_back(ImGui::CalcTextSize(elapsed.c_str()).x);widths.push_back(ImGui::CalcTextSize(progress).x+2*style.FramePadding.x);
+        const int rows=SeisWave::Ui::commandStripRows(widths,vp->WorkSize.x-2*style.WindowPadding.x,style.ItemSpacing.x);
+        toolbarHeight=rows*ImGui::GetFrameHeight()+(rows-1)*style.ItemSpacing.y+2*style.WindowPadding.y;
         ImGui::SetNextWindowPos(vp->WorkPos);ImGui::SetNextWindowSize({vp->WorkSize.x,toolbarHeight});
         ImGui::Begin("##Commands3D",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoDocking|ImGuiWindowFlags_NoScrollbar);
         bool first=true;const auto command=[&](const char* label,FunctionRole3D role){if(!first)ImGui::SameLine();first=false;const float width=ImGui::CalcTextSize(tr3D(label)).x+2*ImGui::GetStyle().FramePadding.x;if(ImGui::GetContentRegionAvail().x<width)ImGui::NewLine();return functionButton3D(label,role);};
@@ -596,11 +603,13 @@ struct Workbench3D {
         if(command(commands[3],FunctionRole3D::Display))resetViews();
         if(command(commands[4],FunctionRole3D::Display))shortcutHelp=!shortcutHelp;
         if(dirty&&command(commands[5],FunctionRole3D::Model))(void)rebuild(true);
-        ImGui::SameLine();const float width=ImGui::GetContentRegionAvail().x;
-        if(width>120) {
-            char progress[80];std::snprintf(progress,sizeof(progress),"%d / %d",simulation->currentStep(),simulation->totalSteps());
-            ImGui::ProgressBar(static_cast<float>(simulation->currentStep())/std::max(1,simulation->totalSteps()),{width,ImGui::GetFrameHeight()},progress);
-        }
+        ImGui::SameLine();if(ImGui::GetContentRegionAvail().x<widths[widths.size()-2])ImGui::NewLine();ImGui::AlignTextToFramePadding();
+        const auto currentElapsed=std::string(language3D()?"计算耗时：":"Compute time: ")+SeisWave::Ui::computeElapsedText(simulation->diagnostics().timing.totalStepMs);
+        ImGui::TextColored(functionColor3D(FunctionRole3D::Run),"%s",currentElapsed.c_str());elapsedRect={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};
+        if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",SeisWave::Ui::computeElapsedHelp(language3D()!=0));
+        ImGui::SameLine();if(ImGui::GetContentRegionAvail().x<widths.back())ImGui::NewLine();
+        std::snprintf(progress,sizeof(progress),"%d / %d | t %.4f s | dt %.4f ms",simulation->currentStep(),simulation->totalSteps(),simulation->currentStep()*simulation->dt(),simulation->dt()*1000);
+        ImGui::ProgressBar(static_cast<float>(simulation->currentStep())/std::max(1,simulation->totalSteps()),{-1,ImGui::GetFrameHeight()},progress);
         ImGui::End();
     }
 
@@ -1497,7 +1506,7 @@ int runWorkbench3D(int argc,char** argv) {
         if(result==0&&viewportSmoke){const bool okay=verifyViewports3D(app,host);if(!okay)std::cerr<<app.error<<'\n';app.renderer.shutdown();return okay?0:16;}
         if(result==0&&themeSmoke){const bool okay=verifyThemePanels3D(app,host);if(!okay)std::cerr<<app.error<<'\n';app.renderer.shutdown();return okay?0:17;}
         int frame=0;
-        int busyFrames=0,pausedStep=-1;ImGuiID originalDock=0;
+        int busyFrames=0,pausedStep=-1;ImGuiID originalDock=0;double pausedComputeMs{};
         const auto backgroundStart=std::chrono::steady_clock::now();
         if(backgroundSmoke)app.running=true;
         struct UiCase {int width,height,language,theme,layout;float font;};
@@ -1524,8 +1533,8 @@ int runWorkbench3D(int argc,char** argv) {
                 if(worker&&worker->busy())++busyFrames;
                 if(frame==3){if(const auto* pane=ImGui::FindWindowByName(label3D("Spatial exploration")))originalDock=pane->DockId;std::size_t n=0;const auto* saved=ImGui::SaveIniSettingsToMemory(&n);app.workspace.restoreIni.assign(saved,n);app.workspace.focused=label3D("Spatial exploration");app.workspace.focusNew=true;}
                 if(frame==6)app.running=false;
-                if(frame==9){worker->synchronize();pausedStep=app.simulation->currentStep();app.workspace.restoreRequested=true;}
-                if(frame==13){if(pausedStep!=app.simulation->currentStep()){std::cerr<<"Background pause kept advancing\n";result=19;}app.running=true;}
+                if(frame==9){worker->synchronize();pausedStep=app.simulation->currentStep();pausedComputeMs=app.simulation->diagnostics().timing.totalStepMs;app.workspace.restoreRequested=true;}
+                if(frame==13){if(pausedStep!=app.simulation->currentStep()||pausedComputeMs!=app.simulation->diagnostics().timing.totalStepMs){std::cerr<<"Background pause kept advancing state/timer\n";result=19;}app.running=true;}
                 if(frame==16){const auto* pane=ImGui::FindWindowByName(label3D("Spatial exploration"));if(!pane||!originalDock||pane->DockId!=originalDock){std::cerr<<"Maximized view failed to restore dock\n";result=19;}}
                 if(std::chrono::steady_clock::now()-backgroundStart>std::chrono::seconds(60)){std::cerr<<"Background GUI timeout\n";result=19;}
             }
@@ -1605,6 +1614,7 @@ int runWorkbench3D(int argc,char** argv) {
             ImGui::NewFrame();
             ImGui::PushFont(nullptr,app.uiFontSize);
             app.gridSegments.fill(0);app.toolbar();app.docking();app.controls();
+            if(smoke){const auto* commands=ImGui::FindWindowByName("##Commands3D");if(!commands||!commands->InnerRect.Contains(app.elapsedRect)||app.elapsedRect.GetWidth()<=0){std::cerr<<"3D elapsed timer clipped\n";result=19;}}
             if(app.simulation&&app.simulation->initialized()){app.diagnosticsWindow();app.updateRange();app.spatialWindow();app.sliceWindow(0,"Inline X-Z");app.sliceWindow(1,"Crossline Y-Z");app.sliceWindow(2,"Depth X-Y");app.records();app.floatingControls();app.shortcuts();app.shortcutWindow();}
             else {app.running=false;app.homeRequested=true;}
             ImGui::PopFont();
@@ -1646,11 +1656,15 @@ int runWorkbench3D(int argc,char** argv) {
             }
             host.renderPlatformWindows();
             if(backgroundSmoke&&app.simulation->completed()&&frame>22) {
+                const int completedSteps=app.simulation->currentStep();
                 const auto cache=app.renderer.cacheStatistics();const auto folder=outputRoot3D()/"validation/background";std::filesystem::create_directories(folder);
                 std::ofstream(folder/"gui.json")<<"{\"frames\":"<<frame+1<<",\"steps\":"<<app.simulation->currentStep()<<",\"busy_frames\":"<<busyFrames<<",\"scene_reuse\":"<<cache[1]<<",\"pause_and_restore\":"<<(result==0?"true":"false")<<"}\n";
                 if(!busyFrames||frame<=app.simulation->currentStep()||!cache[1]||glGetError()!=GL_NO_ERROR||!app.error.empty())result=19;
                 if(!captureFrame3D(folder/"workspace.ppm",width,height))result=8;
-                std::cout<<"Background GUI "<<(result==0?"PASS":"FAIL")<<": "<<frame+1<<" frames / "<<app.simulation->currentStep()<<" steps, "<<busyFrames<<" busy frames; pause, maximize/restore, scene reuse\n";glfwSetWindowShouldClose(window,GLFW_TRUE);
+                const double totalComputeMs=app.simulation->diagnostics().timing.totalStepMs;
+                if(!(totalComputeMs>pausedComputeMs)||!app.clearFields()||app.simulation->diagnostics().timing.totalStepMs!=0||!app.simulation->advance(1,app.error)||!(app.simulation->diagnostics().timing.totalStepMs>0)||!app.rebuild(true)||app.simulation->diagnostics().timing.totalStepMs!=0){std::cerr<<"3D timer clear / step / rebuild failed\n";result=19;}
+                std::cout<<"3D elapsed timer "<<(result==0?"PASS":"FAIL")<<": pause/resume, clear, single step, rebuild; completed compute "<<totalComputeMs<<" ms\n";
+                std::cout<<"Background GUI "<<(result==0?"PASS":"FAIL")<<": "<<frame+1<<" frames / "<<completedSteps<<" steps, "<<busyFrames<<" busy frames; pause, maximize/restore, scene reuse\n";glfwSetWindowShouldClose(window,GLFW_TRUE);
             }
             if(smoke && !uiSmoke && !viewportSmoke && !backgroundSmoke && frame==7) {
                 const auto screenshot=outputRoot3D()/(defaultTerrainSmoke?"validation/default-terrain/workspace.ppm":terrainSmoke?"validation/terrain-display/terrain_workspace.ppm":commandSmoke?"commands_smoke.ppm":"gui_smoke.ppm");

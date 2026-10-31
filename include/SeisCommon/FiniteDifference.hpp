@@ -11,13 +11,13 @@ SEIS_SHARED_HD int direction(int step, int stage, int axis) {
                           {0, 1, 0}, {1, 0, 0}, {1, 0, 1}, {0, 1, 1}};
     return (flags[step % 8][axis] + stage) % 2;
 }
-SEIS_SHARED_HD int stencil(int dir, int depth, int *offsets, double *coefficients) {
+template<class Real> SEIS_SHARED_HD int stencil(int dir, int depth, int *offsets, Real *coefficients) {
     const int n = depth == 1 ? 2 : depth == 2 ? 3 : 5;
-    const double forward[5]{-.30874, -.6326, 1.233, -.3334, .04168};
-    const double lower[3]{-7.0 / 6, 8.0 / 6, -1.0 / 6};
+    const Real forward[5]{Real(-.30874), Real(-.6326), Real(1.233), Real(-.3334), Real(.04168)};
+    const Real lower[3]{Real(-7) / Real(6), Real(8) / Real(6), Real(-1) / Real(6)};
     for (int l = 0; l < n; ++l) {
         const int pos = n == 5 ? l - 1 : l;
-        const double c = n == 5 ? forward[l] : n == 3 ? lower[l] : l == 0 ? -1.0 : 1.0;
+        const Real c = n == 5 ? forward[l] : n == 3 ? lower[l] : l == 0 ? Real(-1) : Real(1);
         offsets[l] = dir ? -pos : pos;
         coefficients[l] = dir ? -c : c;
     }

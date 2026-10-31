@@ -1,0 +1,20 @@
+Internal ctest changing into directory: D:/Code/visual_code/Cmake_project/CMake_pro_CUDA/SeisWaveLab_Curvilinear_Workspace/out/build/x64-Release
+Test project D:/Code/visual_code/Cmake_project/CMake_pro_CUDA/SeisWaveLab_Curvilinear_Workspace/out/build/x64-Release
+    Start  1: curvilinear_2d_module_isolation
+1/7 Test  #1: curvilinear_2d_module_isolation ...   Passed    0.08 sec
+    Start  2: curvilinear_2d_acoustic_forward
+2/7 Test  #2: curvilinear_2d_acoustic_forward ...   Passed   10.88 sec
+    Start  3: curvilinear_2d_acoustic_cpml
+3/7 Test  #3: curvilinear_2d_acoustic_cpml ......   Passed    2.12 sec
+    Start 32: curvilinear_2d_rtm_ui
+4/7 Test #32: curvilinear_2d_rtm_ui .............   Passed    0.92 sec
+    Start 33: curvilinear_2d_acoustic_ui
+5/7 Test #33: curvilinear_2d_acoustic_ui ........   Passed    5.29 sec
+    Start 37: curvilinear_2d_cfs_pml_ui
+6/7 Test #37: curvilinear_2d_cfs_pml_ui .........   Passed   17.46 sec
+    Start 39: curvilinear_2d_workflow_upgrade
+7/7 Test #39: curvilinear_2d_workflow_upgrade ...   Passed    0.99 sec
+
+100% tests passed, 0 tests failed out of 7
+
+Total Test time (real) =  37.74 sec

@@ -1,10 +1,18 @@
+#include "ParameterPanel2D.hpp"
+#include "ModelEditor2D.hpp"
+#include "CommandStrip2D.hpp"
+#include "AbsorberDisplay2D.hpp"
+#include "ModuleNavigation2D.hpp"
+#include "MenuWidgets.hpp"
 #include "Workbench2D.hpp"
+#include "../MemoryBudget2D.hpp"
 #include "AppRuntime.hpp"
 #include "GlassMaterial.hpp"
 #include "ParameterPanelHost.hpp"
 #include "ThemeValidation.hpp"
 #include "Seis2D/AsyncSimulation2D.hpp"
 #include "WorkspaceTools.hpp"
+#include "SimulationTiming.hpp"
 #include "Presentation3D.hpp"
 #include "RecordPalettes3D.hpp"
 #include "RecordView.hpp"
@@ -20,6 +28,7 @@
 #include "Seis2D/ModelPresets2D.hpp"
 #include "Seis2D/ModelIo2D.hpp"
 #include "Seis2D/SurfacePresets.hpp"
+#include "Seis2D/SurfaceSurvey2D.hpp"
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "implot.h"
@@ -30,6 +39,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <iomanip>
 #include <numeric>
 #include <string_view>
@@ -85,30 +95,28 @@ void fitAcquisition(Parameters &p) {
     p.receiverCount =
         std::max(1, std::min({p.receiverCount, 1024, 1 + (p.nx - 1 - p.receiverStart) / p.receiverStride}));
 }
+struct ElasticDraft2D {Parameters parameters;ComputeSettings3D compute;int backend{};};
+std::array<std::optional<ElasticDraft2D>,2> elasticDrafts2D;
 struct Workbench {
+    SeisWave::Ui::ModuleNavigation2D navigation;
+    bool rememberDraft{};
     AsyncSimulation simulation;
     Parameters staged;
     ComputeSettings3D settings, activeSettings;
     int selectedBackend{}, category{}, component{}, wavePalette{1}, modelPalette{1}, modelComponent{},
         selectedReceiver{};
-    bool running{}, home{}, help{}, fit{true}, grid{true}, sponge{}, normalized{true}, showWave{true},
+    bool running{}, home{}, help{}, fit{true}, grid{true}, sponge{}, lastExternalOverlay{},normalized{true}, showWave{true},
         showModel{true};
-    float gain{1};
+    float gain{1}, absorberOpacity{SeisWave::Ui::defaultAbsorberOpacity2D};
+    int renderedAbsorberCells{};
+    double displayedWaveRange{};
     std::string error, status;
     std::vector<float> frame;
-    std::vector<double> terrainPreviewX, terrainPreviewZ;
     std::array<char, 2048> vts{}, csv{}, segy{}, importPath{}, surfacePath{}, modelPath{};
-    std::vector<Layer> layerDraft;
-    bool openLayers{}, openTerrain{}, zeroSurfaceX{true};
-    int layerPreset{-1};
-    int terrainPreset{-1}, activeTerrainPreset{-1};
-    SurfaceSamples terrainPresetSource, activeTerrainPresetSource;
-    int terrainResampledNx{};
-    double terrainResampledSpacing{};
-    std::string layerError;
-    ImRect layerEditRect, layerUseRect, terrainDoneRect;
+    int activeTerrainPreset{-1};
+    SurfaceSamples activeTerrainPresetSource;
+    ImRect layerEditRect;
     int renderStrideX{1}, renderStrideZ{1};
-    ImVec2 dialogViewport{};
     SeisWave::Ui::RecordView recordView;
     SeisWave::ImportedRecords imported;
     bool useImported{};
@@ -118,12 +126,15 @@ struct Workbench {
     bool snapshotFollowDisplay{true}, snapshotMaterial{};
     std::array<bool, 7> snapshotComponents{false, true, false, false, false, false, false};
     std::uint64_t recordGeneration{1}, importedRevision{1};
-    ImRect rebuildRect, frequencyRect, sourceKindRect, sourceMomentRect;
+    ImRect rebuildRect, frequencyRect, sourceKindRect, sourceMomentRect,absorptionRect,computeGroupRect,externalAbsorptionRect,precisionRect;
+    std::array<ImRect,2> precisionChoiceRects;
+    std::array<ImRect,3> absorptionChoiceRects;
     ImRect snapshotToggleRect, snapshotSaveRect,attenuationToggleRect,attenuationQpRect;
     std::array<ImRect, 7> snapshotComponentRects;
     int lastHeight{};
     Seis3D::Curvilinear::CudaDeviceInventory3D inventory;
-    ImRect homeRect;
+    ImRect homeRect,elapsedRect,imagingRect;
+    ImRect surfaceReceiverRect,autoReceiverRect;
     bool layout{true}, domainVisible{}, focusParameters{};
     int lastWidth{};
     float recordHeight{};
@@ -134,30 +145,85 @@ struct Workbench {
     int groupEpoch{};
     bool groupsExpanded{true};
     std::unordered_map<ImGuiID,int> groupApplied;
+    SeisWave::Ui::ModelEditor2D modelEditor{staged,surfacePath,error,status};
+    auto& editorState(){return modelEditor;}
+    std::vector<double>& terrainPreviewX=modelEditor.terrainPreviewX;
+    std::vector<double>& terrainPreviewZ=modelEditor.terrainPreviewZ;
+    std::vector<Layer>& layerDraft=modelEditor.layerDraft;
+    bool& openLayers=modelEditor.openLayers;
+    bool& openTerrain=modelEditor.openTerrain;
+    bool& zeroSurfaceX=modelEditor.zeroSurfaceX;
+    int& layerPreset=modelEditor.layerPreset;
+    int& terrainPreset=modelEditor.terrainPreset;
+    int& terrainResampledNx=modelEditor.terrainResampledNx;
+    double& terrainResampledSpacing=modelEditor.terrainResampledSpacing;
+    SurfaceSamples& terrainPresetSource=modelEditor.terrainPresetSource;
+    std::string& layerError=modelEditor.layerError;
+    ImVec2& dialogViewport=modelEditor.dialogViewport;
+    ImRect& layerUseRect=modelEditor.layerUseRect;
+    ImRect& terrainDoneRect=modelEditor.terrainDoneRect;
     bool parameterGroup(const char *title, ImGuiTreeNodeFlags flags = 0) {
-        const auto id = ImGui::GetID(title);
-        if (groupEpoch && groupApplied[id] != groupEpoch) {
-            ImGui::SetNextItemOpen(groupsExpanded);
-            groupApplied[id] = groupEpoch;
-        }
-        return ImGui::CollapsingHeader(title, flags);
+        return SeisWave::Ui::parameterGroup2D(title, flags, groupEpoch, groupsExpanded, groupApplied);
     }
-    Workbench() {
+    Workbench(bool viscoelastic = false, bool remember = false) {
+        modelEditor.browseTerrain=[this]{browse(surfacePath,false,true);};
+        modelEditor.fitAcquisition=[](Parameters& p){fitAcquisition(p);};
+        rememberDraft = remember;
+        navigation.current =
+            viscoelastic ? SeisWave::Ui::Module2D::Viscoelastic : SeisWave::Ui::Module2D::Elastic;
+        staged.externalAbsorption = true;
+        staged.autoSurfaceReceivers=true;
         inventory = Seis3D::Curvilinear::queryCudaDevices3D();
         selectedBackend = Seis3D::Curvilinear::selectCudaDevice3D(inventory).available ? 1 : 0;
+        if (remember && elasticDrafts2D[viscoelastic ? 1 : 0]) {
+            const auto &draft = *elasticDrafts2D[viscoelastic ? 1 : 0];
+            staged = draft.parameters;
+            settings = draft.compute;
+            selectedBackend = draft.backend;
+        }
+        if (auto model = SeisWave::Ui::modelMailbox2D().take(navigation.current)) {
+            staged = std::move(model->model);
+            settings = model->compute;
+            selectedBackend = static_cast<int>(model->backend);
+        }
+        if (remember || viscoelastic)
+            staged.attenuation.enabled = viscoelastic;
         const auto output = SeisWave::Ui::outputRoot() / "2d";
         std::filesystem::create_directories(output);
         const auto setPath = [&](auto &field, const char *file) {
             const auto name = (output / file).u8string();
             std::snprintf(field.data(), field.size(), "%s", reinterpret_cast<const char *>(name.c_str()));
         };
-        setPath(vts, "wavefield.vts"); setPath(modelPath, "model.vts");
-        setPath(csv, "receivers.csv"); setPath(segy, "receivers.sgy");
+        setPath(vts, "wavefield.vts");
+        setPath(modelPath, "model.vts");
+        setPath(csv, "receivers.csv");
+        setPath(segy, "receivers.sgy");
+        syncSurfaceReceivers();
+    }
+    void syncSurfaceReceivers(){
+        if(staged.nx<8||staged.nz<8||staged.nx>maxAxisNodes||staged.nz>maxAxisNodes)return;
+        const int margin=staged.absorbing&&!staged.externalAbsorption?Detail::domainLayout(staged).widthX:0;
+        synchronizeSurfaceReceivers(staged,false,1024,margin);
+    }
+    ~Workbench() {
+        if (rememberDraft) {
+            auto p = staged;
+            p.attenuation.enabled = navigation.current == SeisWave::Ui::Module2D::Viscoelastic;
+            elasticDrafts2D[p.attenuation.enabled ? 1 : 0] =
+                ElasticDraft2D{std::move(p), settings, selectedBackend};
+        }
     }
     bool apply() {
         running = false;
+        if (rememberDraft &&
+            staged.attenuation.enabled != (navigation.current == SeisWave::Ui::Module2D::Viscoelastic)) {
+            error = l("Switch to the matching physics module before rebuilding.",
+                      "请先切换到对应的物理模块，再重建模型。");
+            return false;
+        }
         if (!syncTerrainPreset())
             return false;
+        syncSurfaceReceivers();
         if (!simulation.initialize(staged, error, static_cast<BackendKind3D>(selectedBackend), settings))
             return false;
         activeTerrainPreset = terrainPreset;
@@ -183,8 +249,8 @@ struct Workbench {
         data.revision = (recordGeneration << 32) + simulation.step() + 1;
         data.components = {"Vz", "Vx"};
         const auto &p = simulation.parameters();
-        const auto source = simulation.grid().coordinates[simulation.grid().index(
-            (p.sourceX < 0 ? p.nx / 2 : p.sourceX) + ghost, p.sourceZ + ghost)];
+        const auto source = simulation.grid().coordinates[simulation.grid().modelIndex(
+            (p.sourceX < 0 ? p.nx / 2 : p.sourceX), p.sourceZ)];
         for (const auto &receiver : simulation.receivers()) {
             SeisWave::TraceView t;
             t.position = {receiver.position[0], 0, receiver.position[1]};
@@ -278,7 +344,7 @@ struct Workbench {
         if (path.extension().empty()) path += ".vts";
         if (!writeSnapshot(simulation, path, error, snapshotOptions()))
             return false;
-        status = l("Selected raw Float64 wavefield components exported.", "所选波场分量已按原始 Float64 物理量导出。");
+        status = std::string(l("Raw wavefield exported: ", "原始物理波场已导出："))+precisionName(simulation.parameters().precision);
         return true;
     }
     void snapshotControls() {
@@ -311,8 +377,8 @@ struct Workbench {
             }
         ImGui::TextWrapped("%s: %s", l("Export components", "将导出分量"),
                            selected.empty() ? l("None selected", "尚未选择") : selected.c_str());
-        ImGui::TextWrapped("%s", l("Physical Float64 values; display gain, palette and normalization are excluded.",
-                                   "保存原始 Float64 物理值，不应用显示增益、色带或归一化。"));
+        ImGui::TextWrapped("%s", l("Physical values in the active calculation precision; display gain, palette and normalization are excluded.",
+                                   "按当前计算精度保存原始物理值，不应用显示增益、色带或归一化。"));
         ImGui::SetNextItemWidth(-1);
         ImGui::InputText("##2Dvts", vts.data(), vts.size());
         if (button("Snapshot save location", "选择快照保存位置", FunctionRole3D::Export, {-1, 0}))
@@ -328,6 +394,20 @@ struct Workbench {
         const auto path = std::filesystem::path(std::u8string(reinterpret_cast<const char8_t *>(modelPath.data())));
         if (!readModelVts(path, document, error))
             return false;
+        if (rememberDraft && document.parameters.attenuation.enabled !=
+                                 (navigation.current == SeisWave::Ui::Module2D::Viscoelastic)) {
+            const auto target = document.parameters.attenuation.enabled
+                                    ? SeisWave::Ui::Module2D::Viscoelastic
+                                    : SeisWave::Ui::Module2D::Elastic;
+            document.compute.cudaDevice = -1;
+            if (document.backend == BackendKind3D::Cuda &&
+                !Seis3D::Curvilinear::queryBackend3D(BackendKind3D::Cuda).available)
+                document.backend = BackendKind3D::Cpu;
+            SeisWave::Ui::modelMailbox2D().post(
+                target, {navigation.current, std::move(document.parameters), document.compute, document.backend});
+            navigation.requested = SeisWave::Ui::moduleRoute(target);
+            return true;
+        }
         const auto oldParameters = staged;
         const auto oldSettings = settings;
         const int oldBackend = selectedBackend;
@@ -434,7 +514,9 @@ struct Workbench {
             if (button("Home", "主页", FunctionRole3D::Model))
                 home = true;
             homeRect = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
-            if (ImGui::BeginMenu(l("Workspace", "工作区"))) {
+            navigation.draw(staged,settings,static_cast<BackendKind3D>(selectedBackend),error);
+            imagingRect=navigation.rootRect;
+            if (SeisWave::Ui::beginDropdownMenu(l("Workspace", "工作区"))) {
                 std::array<bool,4> visibility{parameterWindow,summaryWindow,waveWindow,recordWindow};
                 if(workspace.menu(2,visibility)){parameterWindow=visibility[0];summaryWindow=visibility[1];waveWindow=visibility[2];recordWindow=visibility[3];lastParameterMode=parameterHost.mode();layout=false;}
                 ImGui::MenuItem(l("Parameters", "参数面板"), nullptr, &parameterWindow);
@@ -448,7 +530,7 @@ struct Workbench {
                 }
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu(l("Appearance", "界面外观"))) {
+            if (SeisWave::Ui::beginDropdownMenu(l("Appearance", "界面外观"))) {
                 int language = language3D();
                 ImGui::SetNextItemWidth(190);
                 if (ImGui::Combo("##language2D", &language, "English\0简体中文\0"))
@@ -468,18 +550,33 @@ struct Workbench {
                 glassAppearanceControls3D();
                 ImGui::EndMenu();
             }
-            if(ImGui::BeginMenu(l("Parameter panels","参数面板"))){if(parameterHost.menu())parameterWindow=true;ImGui::EndMenu();}
+            if(SeisWave::Ui::beginDropdownMenu(l("Parameter panels","参数面板"))){if(parameterHost.menu())parameterWindow=true;ImGui::EndMenu();}
             if (button("Help [F1]", "帮助 [F1]", FunctionRole3D::Display))
                 help = !help;
             ImGui::EndMainMenuBar();
         }
         const auto *vp = ImGui::GetMainViewport();
-        const float height = ImGui::GetFontSize() * (vp->WorkSize.x < 1250 ? 2 : 1) + 18;
+        const auto elapsed=std::string(l("Compute time: ","计算耗时："))+SeisWave::Ui::computeElapsedText(simulation.diagnostics().totalStepMs);
+        char progress[192];
+        std::snprintf(progress,sizeof(progress),"%d / %d (%.1f%%) | t %.4f s | dt %.5f ms",simulation.step(),simulation.totalSteps(),
+                      100.0*simulation.step()/std::max(1,simulation.totalSteps()),simulation.step()*simulation.dt(),simulation.dt()*1000);
+        const char* commands[]{l(running?"Pause [Space]":"Run [Space]",running?"暂停 [Space]":"运行 [Space]"),
+            l("Step [N]","单步 [N]"),l("Clear [C]","清空 [C]"),l("Apply / rebuild","应用 / 重建"),l("Fit [R]","适配 [R]")};
+        const auto& style=ImGui::GetStyle();std::array<float,7> widths{};
+        for(int i=0;i<5;++i)widths[i]=ImGui::CalcTextSize(commands[i]).x+2*style.FramePadding.x;
+        widths[5]=ImGui::CalcTextSize(elapsed.c_str()).x;
+        widths[6]=ImGui::CalcTextSize(progress).x+2*style.FramePadding.x;
+        SeisWave::Ui::CommandStrip2D strip(widths,{0,0,0,1,2,3,3},
+            {l("Compute","计算"),l("Model","模型"),l("View","视图"),l("Status","状态")});
+        const int rows=strip.rows(vp->WorkSize.x-2*style.WindowPadding.x);
+        const float height=rows*ImGui::GetFrameHeight()+(rows-1)*style.ItemSpacing.y+2*style.WindowPadding.y;
         ImGui::SetNextWindowPos(vp->WorkPos);
         ImGui::SetNextWindowSize({vp->WorkSize.x, height});
         ImGui::Begin("##2DCommands", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove |
                          ImGuiWindowFlags_NoSavedSettings);
+        const auto next=[&](int i){strip.next(i);};
+        next(0);
         if (button(running ? "Pause [Space]" : "Run [Space]", running ? "暂停 [Space]" : "运行 [Space]",
                    FunctionRole3D::Run)) {
             if (running)
@@ -487,23 +584,26 @@ struct Workbench {
             else
                 prepareRun(true);
         }
-        ImGui::SameLine();
+        next(1);
         if (button("Step [N]", "单步 [N]", FunctionRole3D::Run) && prepareRun(false))
             simulation.advance(1, error);
-        ImGui::SameLine();
+        next(2);
         if (button("Clear [C]", "清空 [C]", FunctionRole3D::Danger))
             clear();
-        ImGui::SameLine();
+        next(3);
+        if(button("Apply / rebuild","应用 / 重建",FunctionRole3D::Model))apply();
+        next(4);
         if (button("Fit [R]", "适配 [R]", FunctionRole3D::Display))
             fit = true;
-        if (ImGui::GetContentRegionAvail().x < 180)
-            ImGui::NewLine();
-        else
-            ImGui::SameLine();
-        char progress[160];
-        std::snprintf(progress, sizeof(progress), "%d / %d (%.1f%%) | t %.4f s | dt %.5f ms", simulation.step(),
-                      simulation.totalSteps(), 100.0 * simulation.step() / std::max(1, simulation.totalSteps()),
-                      simulation.step() * simulation.dt(), simulation.dt() * 1000);
+        next(5);ImGui::AlignTextToFramePadding();
+        // Read after buttons so Clear/Step is reflected in the same UI frame.
+        const auto currentElapsed=std::string(l("Compute time: ","计算耗时："))+SeisWave::Ui::computeElapsedText(simulation.diagnostics().totalStepMs);
+        ImGui::TextColored(functionColor3D(FunctionRole3D::Run),"%s",currentElapsed.c_str());
+        elapsedRect={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};
+        if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",SeisWave::Ui::computeElapsedHelp(language3D()!=0));
+        next(6);
+        std::snprintf(progress,sizeof(progress),"%d / %d (%.1f%%) | t %.4f s | dt %.5f ms",simulation.step(),simulation.totalSteps(),
+                      100.0*simulation.step()/std::max(1,simulation.totalSteps()),simulation.step()*simulation.dt(),simulation.dt()*1000);
         ImGui::ProgressBar(static_cast<float>(simulation.step()) / std::max(1, simulation.totalSteps()),
                            {-1, ImGui::GetFrameHeight()}, progress);
         ImGui::End();
@@ -542,345 +642,13 @@ struct Workbench {
         lastWidth=static_cast<int>(vp->Size.x);lastHeight=static_cast<int>(vp->Size.y);
         ImGui::End();
     }
-    void updateTerrainPreview() {
-        terrainPreviewX.clear();
-        terrainPreviewZ.clear();
-        if (staged.surfaceSamples.empty())
-            return;
-        const SurfaceProfile curve(staged.surfaceSamples);
-        for (int i = 0; i <= 512; ++i) {
-            const double x =
-                staged.surfaceSamples.front()[0] +
-                (staged.surfaceSamples.back()[0] - staged.surfaceSamples.front()[0]) * (i / 512.);
-            terrainPreviewX.push_back(x);
-            terrainPreviewZ.push_back(curve.sample(x)[0]);
-        }
-    }
-    bool syncTerrainPreset() {
-        if (terrainPreset < 0 || !staged.importedSurface)
-            return true;
-        try {
-            if (staged.nx < 8 || staged.nx > maxAxisNodes || !std::isfinite(staged.spacing) || staged.spacing <= 0)
-                throw std::runtime_error("Terrain preset requires valid X nodes and positive spacing.");
-            if (terrainResampledNx != staged.nx || terrainResampledSpacing != staged.spacing) {
-                auto samples = resampleSurfaceProfile(terrainPresetSource, (staged.nx - 1) * staged.spacing,
-                                                       static_cast<std::size_t>(staged.nx));
-                staged.surfaceSamples = std::move(samples);
-                terrainResampledNx = staged.nx;
-                terrainResampledSpacing = staged.spacing;
-                updateTerrainPreview();
-            }
-            return true;
-        } catch (const std::exception &e) {
-            error = e.what();
-            return false;
-        }
-    }
-    bool chooseTerrainPreset(int index) {
-        if (index < 0 || index >= static_cast<int>(surfacePresets.size()))
-            return false;
-        const auto path = SeisWave::Ui::elevationExampleRoot() / surfacePresets[index].file;
-        SurfaceSamples source;
-        if (!readSurfaceProfile(path, source, error))
-            return false;
-        try {
-            const auto pathText = path.u8string();
-            if (pathText.size() >= surfacePath.size())
-                throw std::runtime_error("Terrain preset path is too long.");
-            if (staged.nx < 8 || staged.nx > maxAxisNodes || !std::isfinite(staged.spacing) || staged.spacing <= 0)
-                throw std::runtime_error("Set valid X nodes and spacing before choosing a terrain preset.");
-            auto samples = resampleSurfaceProfile(source, (staged.nx - 1) * staged.spacing,
-                                                   static_cast<std::size_t>(staged.nx));
-            terrainPresetSource = std::move(source);
-            staged.surfaceSamples = std::move(samples);
-            terrainPreset = index;
-            terrainResampledNx = staged.nx;
-            terrainResampledSpacing = staged.spacing;
-            staged.surfaceDatum = 0;
-            staged.importedSurface = true;
-            std::snprintf(surfacePath.data(), surfacePath.size(), "%s",
-                          reinterpret_cast<const char *>(pathText.c_str()));
-            updateTerrainPreview();
-            error.clear();
-            status = l("Terrain preset staged; X follows model width, elevation is unchanged. Reset / apply.",
-                       "地表预设已选择，水平范围随模型宽度适配，高程保持不变；重置并应用后生效。");
-            return true;
-        } catch (const std::exception &e) {
-            error = e.what();
-            return false;
-        }
-    }
-    bool setTerrainPresetWidth(double width) {
-        const double intervals = width / staged.spacing;
-        if (terrainPreset < 0 || !std::isfinite(width) || width <= 0 ||
-            !std::isfinite(staged.spacing) || staged.spacing <= 0 ||
-            !std::isfinite(intervals) || intervals < 7 || intervals > maxAxisNodes - 1) {
-            error = l("This width requires X nodes outside 8..16384 or invalid spacing.",
-                      "当前宽度所需 X 节点超出 8..16384，或网格间距无效。");
-            return false;
-        }
-        staged.nx = static_cast<int>(std::round(intervals)) + 1;
-        fitAcquisition(staged);
-        if (!syncTerrainPreset())
-            return false;
-        error.clear();
-        return true;
-    }
-    void terrainPresetControls() {
-        ImGui::TextUnformatted(l("Surface presets (fit model width)", "地表预设（适配模型宽度）"));
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::BeginCombo("##surfacePreset", terrainPreset < 0 ? l("Custom / file / analytic", "自定义 / 文件 / 解析地表")
-                                                                       : l(surfacePresets[terrainPreset].en, surfacePresets[terrainPreset].zh))) {
-            if (ImGui::Selectable(l("Custom / file / analytic", "自定义 / 文件 / 解析地表"), terrainPreset < 0)) {
-                terrainPreset = -1;
-                terrainPresetSource.clear(); // Freeze current samples; do not stretch imported measurements.
-            }
-            for (int i = 0; i < static_cast<int>(surfacePresets.size()); ++i)
-                if (ImGui::Selectable(l(surfacePresets[i].en, surfacePresets[i].zh), terrainPreset == i))
-                    chooseTerrainPreset(i);
-            ImGui::EndCombo();
-        }
-        if (terrainPreset < 0)
-            return;
-        for (int km : {1, 2, 4}) {
-            if (km != 1)
-                ImGui::SameLine();
-            const auto name = std::to_string(km) + " km";
-            if (ImGui::Button(name.c_str()))
-                setTerrainPresetWidth(km * 1000.);
-        }
-        syncTerrainPreset();
-        ImGui::TextWrapped("%s", l("Original 1 km shape is stretched horizontally and PCHIP-sampled at grid nodes. "
-                                   "Elevation and datum stay unchanged; slopes change. Width buttons keep spacing and round X nodes.",
-                                   "由原始 1 km 数据水平拉伸，并按网格节点保形插值。高程、基准保持不变，坡度会变化；宽度按钮保持间距，X 节点取整，以待应用尺寸为准。"));
-    }
-    bool loadTerrain() {
-        SurfaceSamples samples;
-        if (!readSurfaceProfile(
-                std::filesystem::path(std::u8string(reinterpret_cast<const char8_t *>(surfacePath.data()))),
-                samples, error))
-            return false;
-        const double origin = zeroSurfaceX ? samples.front()[0] : 0;
-        double sum = 0;
-        for (auto &point : samples) {
-            point[0] -= origin;
-            sum += point[1];
-        }
-        const double datum = sum / static_cast<double>(samples.size());
-        if (!std::isfinite(datum)) {
-            error = "Nonfinite elevation datum.";
-            return false;
-        }
-        staged.surfaceSamples = std::move(samples);
-        terrainPreset = -1;
-        terrainPresetSource.clear();
-        staged.surfaceDatum = datum;
-        staged.importedSurface = true;
-        updateTerrainPreview();
-        status = l("Profile loaded; review span and datum, then reset / apply.",
-                   "高程剖面已载入；检查覆盖范围和高程基准后，重置并应用。");
-        return true;
-    }
-    void modelDialogs() {
-        const char *layersTitle =
-            l("Layered material editor###2DLayerEditor", "分层介质编辑###2DLayerEditor");
-        if (openLayers) {
-            layerDraft = staged.layers;
-            layerError.clear();
-            layerPreset = -1;
-            ImGui::OpenPopup(layersTitle);
-            openLayers = false;
-        }
-        const auto *vp = ImGui::GetMainViewport();
-        const bool resized = dialogViewport.x != vp->Size.x || dialogViewport.y != vp->Size.y;
-        dialogViewport = vp->Size;
-        ImGui::SetNextWindowPos(vp->GetCenter(), resized ? ImGuiCond_Always : ImGuiCond_Appearing,
-                                {.5f, .5f});
-        ImGui::SetNextWindowSize({std::min(vp->Size.x - 40, 1020.f), std::min(vp->Size.y - 70, 660.f)},
-                                 ImGuiCond_Always);
-        if (ImGui::BeginPopupModal(layersTitle, nullptr, ImGuiWindowFlags_NoSavedSettings)) {
-            ImGui::SetNextItemWidth(-1);
-            const auto &presets = materialPresets();
-            if (ImGui::BeginCombo("##layerPreset",
-                                  layerPreset < 0 ? l("Choose a material preset", "选择介质预设")
-                                                  : l(presets[layerPreset].en, presets[layerPreset].zh))) {
-                for (int i = 0; i < static_cast<int>(presets.size()); ++i)
-                    if (ImGui::Selectable(l(presets[i].en, presets[i].zh), i == layerPreset)) {
-                        layerPreset = i;
-                        layerDraft = presets[i].layers;
-                    }
-                ImGui::EndCombo();
-            }
-            ImGui::TextWrapped(
-                "%s", l("Thickness uses computational depth. The final layer fills all remaining depth.",
-                        "厚度按计算深度定义，末层自动填充剩余深度；相同深度索引保持相同物性。"));
-            const float tableHeight =
-                std::max(100.f, ImGui::GetContentRegionAvail().y - ImGui::GetFontSize() * 6 - 48);
-            if (ImGui::BeginTable("##layerTable", staged.attenuation.enabled?7:5,
-                                  ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
-                                      ImGuiTableFlags_SizingStretchSame,
-                                  {0, tableHeight})) {
-                for (const char *name : {l("Layer", "地层"), l("Thickness (m)", "厚度（m）"), "Vp (m/s)",
-                                         "Vs (m/s)", l("Density (kg/m3)", "密度（kg/m³）")})
-                    ImGui::TableSetupColumn(name);
-                if(staged.attenuation.enabled){ImGui::TableSetupColumn("Qp");ImGui::TableSetupColumn("Qs");}
-                ImGui::TableSetupScrollFreeze(0, 1);
-                ImGui::TableHeadersRow();
-                for (std::size_t i = 0; i < layerDraft.size(); ++i) {
-                    ImGui::PushID(static_cast<int>(i));
-                    auto &v = layerDraft[i];
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%zu", i + 1);
-                    for (int c = 0; c < (staged.attenuation.enabled?6:4); ++c) {
-                        ImGui::TableNextColumn();
-                        ImGui::SetNextItemWidth(-1);
-                        if (c == 0 && i + 1 == layerDraft.size())
-                            ImGui::TextUnformatted(l("Auto", "自动"));
-                        else {
-                            double *value = c == 0   ? &v.thickness
-                                            : c == 1 ? &v.vp
-                                            : c == 2 ? &v.vs
-                                            : c == 3 ? &v.density : c==4 ? &v.qp : &v.qs;
-                            ImGui::PushID(c);
-                            ImGui::InputDouble("##value", value, 0, 0, "%.2f");
-                            ImGui::PopID();
-                        }
-                    }
-                    ImGui::PopID();
-                }
-                ImGui::EndTable();
-            }
-            ImGui::BeginDisabled(layerDraft.size() >= 16);
-            if (button("Add layer", "增加地层", FunctionRole3D::Model)) {
-                if (!layerDraft.empty())
-                    layerDraft.back().thickness = 20;
-                layerDraft.push_back({0, 4000, 2300, 2650});
-            }
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            ImGui::BeginDisabled(layerDraft.size() <= 1);
-            if (button("Remove last", "删除末层", FunctionRole3D::Display)) {
-                layerDraft.pop_back();
-                layerDraft.back().thickness = 0;
-            }
-            ImGui::EndDisabled();
-            double vs = 1e100;
-            for (const auto &v : layerDraft)
-                vs = std::min(vs, v.vs);
-            ImGui::TextWrapped("%s %.2f | h <= %.3f m (8 PPW, 2.5 f0)", l("Minimum Vs", "最低 Vs"), vs,
-                               vs / (20 * std::max(1.0, staged.frequency)));
-            if(staged.attenuation.enabled)ImGui::TextWrapped("%s",l("These are reference-frequency velocities; review the dispersion-aware sampling diagnostic after rebuilding.","这里使用参考频率速度；重建后请核对考虑频散的实际采样指标。"));
-            if (!layerError.empty())
-                ImGui::TextWrapped("%s", layerError.c_str());
-            if (button("Use layers", "采用层表", FunctionRole3D::Run)) {
-                layerError.clear();
-                bool valid = !layerDraft.empty();
-                for (std::size_t i = 0; i < layerDraft.size(); ++i) {
-                    const auto &v = layerDraft[i];
-                    valid &= std::isfinite(v.thickness) && std::isfinite(v.vp) && std::isfinite(v.vs) &&
-                             std::isfinite(v.density) && v.vs > 0 && v.vp > 0 && v.density > 0 &&
-                             std::isfinite(v.density * v.vp * v.vp) && v.vp * v.vp > 4 * v.vs * v.vs / 3 &&
-                             (i + 1 == layerDraft.size() || v.thickness > 0);
-                    if(valid&&staged.attenuation.enabled){SeisWave::Rheology::Material m;valid=SeisWave::Rheology::fitMaterial(v.vp,v.vs,v.density,v.qp,v.qs,staged.attenuation,m,layerError);}
-                }
-                if (valid) {
-                    layerDraft.back().thickness = 0;
-                    staged.layers = layerDraft;
-                    staged.layered = true;
-                    ImGui::CloseCurrentPopup();
-                } else if(layerError.empty())
-                    layerError = l("Require finite positive material values, positive bulk modulus and "
-                                   "positive finite-layer thickness.",
-                                   "物性必须为有限正值、体积模量必须为正，非末层厚度必须大于零。");
-            }
-            layerUseRect = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
-            ImGui::SameLine();
-            if (button("Cancel layers", "取消", FunctionRole3D::Display))
-                ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-        }
-        const char *terrainTitle = l("External surface profile###2DTerrain", "外部地表高程###2DTerrain");
-        if (openTerrain) {
-            updateTerrainPreview();
-            ImGui::OpenPopup(terrainTitle);
-            openTerrain = false;
-        }
-        ImGui::SetNextWindowPos(vp->GetCenter(), resized ? ImGuiCond_Always : ImGuiCond_Appearing,
-                                {.5f, .5f});
-        ImGui::SetNextWindowSize({std::min(vp->Size.x - 40, 1020.f), std::min(vp->Size.y - 70, 800.f)},
-                                 ImGuiCond_Always);
-        if (ImGui::BeginPopupModal(terrainTitle, nullptr, ImGuiWindowFlags_NoSavedSettings)) {
-            ImGui::BeginChild("##terrainFields", {0, -ImGui::GetFrameHeightWithSpacing() - 12},
-                              ImGuiChildFlags_None, ImGuiWindowFlags_AlwaysVerticalScrollbar);
-            ImGui::TextWrapped("%s", l("CSV/TXT: x_m, elevation_m (positive up), optional header. "
-                                       "Coordinates must increase strictly. PCHIP interpolation is used.",
-                                       "CSV/TXT 两列：x_m, elevation_m（高程向上为正），可有表头；X "
-                                       "必须严格递增。采用保形三次 Hermite 插值。"));
-            terrainPresetControls();
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::BeginCombo("##terrainExample", l("Choose an elevation example…", "选择示例高程…"))) {
-                for (const auto &example : elevationExamples)
-                    if (ImGui::Selectable(l(example.en, example.zh))) {
-                        const auto path = (SeisWave::Ui::elevationExampleRoot() / example.file).u8string();
-                        if (path.size() < surfacePath.size()) {
-                            std::snprintf(surfacePath.data(), surfacePath.size(), "%s",
-                                          reinterpret_cast<const char *>(path.c_str()));
-                            loadTerrain();
-                        } else
-                            error = l("Example path is too long.", "示例路径过长。");
-                    }
-                ImGui::EndCombo();
-            }
-            ImGui::SetNextItemWidth(-1);
-            ImGui::InputText("##surfacePath", surfacePath.data(), surfacePath.size());
-            if (button("Browse terrain", "选择高程文件", FunctionRole3D::Model))
-                browse(surfacePath, false, true);
-            ImGui::SameLine();
-            if (button("Load terrain", "载入高程", FunctionRole3D::Model))
-                loadTerrain();
-            ImGui::Checkbox(l("Shift first X to zero on import", "导入时将首点 X 平移至零"), &zeroSurfaceX);
-            if (!staged.surfaceSamples.empty()) {
-                ImGui::Checkbox(l("Use imported surface", "使用外部高程"), &staged.importedSurface);
-                ImGui::TextUnformatted(l("Elevation datum (m)", "高程基准（m）"));
-                ImGui::SetNextItemWidth(-1);
-                ImGui::InputDouble("##elevationDatum", &staged.surfaceDatum, 1, 10, "%.3f");
-                const auto &v = staged.surfaceSamples;
-                ImGui::TextWrapped("%zu %s | X %.3f .. %.3f m | %s %.3f m", v.size(), l("samples", "个样点"),
-                                   v.front()[0], v.back()[0], l("required span", "所需覆盖"),
-                                   (staged.nx - 1) * staged.spacing);
-                if (terrainPreset >= 0)
-                    ImGui::TextWrapped("%s", l("Preset datum starts at 0 m; width adaptation preserves your datum. "
-                                               "Model depth z = datum - elevation. Reset / apply rebuilds geometry and dt.",
-                                               "预设基准初始为 0 m；宽度适配保留已设基准。模型深度 z=基准−高程，重置并应用会重建几何与 dt。"));
-                else
-                    ImGui::TextWrapped("%s", l("Initial datum is mean elevation. Model depth z = datum - "
-                                           "elevation. Reset / apply rebuilds geometry, normals and dt.",
-                                           "初始基准为样点高程平均值，模型深度 "
-                                           "z=基准−高程。重置并应用会重新生成网格、法向和 dt。"));
-                const auto &x = terrainPreviewX, &z = terrainPreviewZ;
-                if (ImPlot::BeginPlot("##surfacePreview",
-                                      {-1, std::max(180.f, ImGui::GetContentRegionAvail().y - 12)},
-                                      ImPlotFlags_NoLegend)) {
-                    ImPlot::SetupAxes("X (m)", l("Elevation (m)", "高程（m）"));
-                    ImPlot::SetupAxisTicks(ImAxis_Y1, *std::min_element(z.begin(), z.end()) - 1,
-                                           *std::max_element(z.begin(), z.end()) + 1, 3);
-                    ImPlot::SetupAxesLimits(v.front()[0], v.back()[0],
-                                            *std::min_element(z.begin(), z.end()) - 1,
-                                            *std::max_element(z.begin(), z.end()) + 1, ImGuiCond_Always);
-                    ImPlot::PlotLine("Profile", x.data(), z.data(), static_cast<int>(x.size()));
-                    ImPlot::EndPlot();
-                }
-            }
-            if (!error.empty())
-                ImGui::TextWrapped("%s", error.c_str());
-            ImGui::EndChild();
-            if (button("Done terrain", "完成", FunctionRole3D::Run))
-                ImGui::CloseCurrentPopup();
-            terrainDoneRect = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
-            ImGui::EndPopup();
-        }
-    }
+    void updateTerrainPreview(){modelEditor.updateTerrainPreview();}
+    bool syncTerrainPreset(){return modelEditor.syncTerrainPreset();}
+    bool chooseTerrainPreset(int i){return modelEditor.chooseTerrainPreset(i);}
+    bool setTerrainPresetWidth(double w){return modelEditor.setTerrainPresetWidth(w);}
+    void terrainPresetControls(){modelEditor.terrainPresetControls();}
+    bool loadTerrain(){return modelEditor.loadTerrain();}
+    void modelDialogs(){modelEditor.modelDialogs();}
     void attenuationControls() {
         const auto input=[&](const char* en,const char* zh,double& value,double increment){ImGui::TextUnformatted(l(en,zh));ImGui::SetNextItemWidth(-1);const auto id=std::string("##")+en;ImGui::InputDouble(id.c_str(),&value,increment,increment*10,"%.3f");};
         if(parameterGroup(l("Qp / Qs attenuation (GSLS)","Qp / Qs 黏弹性（GSLS）"),0)) {
@@ -909,38 +677,18 @@ struct Workbench {
         if(floating&&!open)SeisWave::Ui::setParameterDisplayMode(2,0);
         if(!visible){ImGui::End();return;}
         if(floating)parameterHost.tools();
-        const char *en[]{"Model", "Survey", "Run", "Display", "Export"};
-        const char *zh[]{"建模", "采集", "运行", "显示", "导出"};
-        const float width =
-            std::max(22.f, (ImGui::GetContentRegionAvail().x - 4 * ImGui::GetStyle().ItemSpacing.x) / 5);
-        float longest = 1;
-        for (int i = 0; i < 5; ++i)
-            longest = std::max(longest, ImGui::CalcTextSize(l(en[i], zh[i])).x);
-        ImGui::PushFont(nullptr, std::clamp(ImGui::GetFontSize() *
-                                                (width - 2 * ImGui::GetStyle().FramePadding.x - 4) / longest,
-                                            12.f, ImGui::GetFontSize()));
-        for (int i = 0; i < 5; ++i) {
-            if (i)
-                ImGui::SameLine();
-            if (button(en[i], zh[i],
-                       i == 2   ? FunctionRole3D::Run
-                       : i == 4 ? FunctionRole3D::Export
-                                : FunctionRole3D::Model,
-                       {width, 0}))
-                category = i;
-        }
-        ImGui::PopFont();
-        if (button("Expand all", "全部展开", FunctionRole3D::Display)) { ++groupEpoch; groupsExpanded = true; }
-        ImGui::SameLine();
-        if (button("Collapse all", "全部折叠", FunctionRole3D::Display)) { ++groupEpoch; groupsExpanded = false; }
-        const float footer = ImGui::GetFontSize() * 8 + 82;
+        SeisWave::Ui::parameterTabs2D(category);
+        SeisWave::Ui::parameterGroupButtons2D(groupEpoch, groupsExpanded);
+        const SeisWave::Ui::ParameterSession2D session{simulation.initialized(), dirty(),
+            simulation.parameters().frequency, simulation.dt(), error};
+        const float footer = session.height();
         ImGui::BeginChild("##2DParameterFields", {0, -footer}, ImGuiChildFlags_None,
                           ImGuiWindowFlags_AlwaysVerticalScrollbar);
-        const auto input = [&](const char *name, const char *chinese, double &value, double increment = 1) {
+        const auto input = [&](const char *name, const char *chinese, double &value, double increment = 1, const char* format="%.3f") {
             ImGui::TextUnformatted(l(name, chinese));
             ImGui::SetNextItemWidth(-1);
             const auto id = std::string("##") + name;
-            ImGui::InputDouble(id.c_str(), &value, increment, increment * 10, "%.3f");
+            ImGui::InputDouble(id.c_str(), &value, increment, increment * 10, format);
             if (std::string(name) == "Dominant frequency (Hz)")
                 frequencyRect = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
         };
@@ -986,14 +734,13 @@ struct Workbench {
                 ImGui::TextWrapped("%s: %.2f x %.2f m", l("Staged span", "待应用尺寸"),
                                    (staged.nx - 1) * staged.spacing, (staged.nz - 1) * staged.spacing);
                 terrainPresetControls();
-                const double nodes = (static_cast<double>(std::max(0, staged.nx)) + 6) *
-                                     (static_cast<double>(std::max(0, staged.nz)) + 6);
+                const auto cpuBudget=Detail::memoryBudget(staged,BackendKind3D::Cpu);
+                const auto gpuBudget=Detail::memoryBudget(staged,BackendKind3D::Cuda);
+                const auto domain=Detail::domainLayout(staged);
+                ImGui::Text("%s %d x %d",l("Computational nodes (incl. absorber)","实际计算节点（含吸收带）"),domain.nx,domain.nz);
                 ImGui::TextWrapped(
                     "%s %.0f MiB | GPU %.0f MiB", l("Grid estimate: RAM", "网格预算：内存"),
-                    nodes * (480 + (staged.source.kind == SeisWave::SourceKind::IsotropicMoment ? 16 : 0)) /
-                        (1024 * 1024),
-                    nodes * (384 + (staged.source.kind == SeisWave::SourceKind::IsotropicMoment ? 16 : 0)) /
-                        (1024 * 1024));
+                    cpuBudget.hostBytes/(1024*1024),gpuBudget.deviceBytes/(1024*1024));
                 ImGui::TextWrapped("%s", l("Limits also depend on available RAM/VRAM; rebuilding keeps the "
                                            "old session until success.",
                                            "实际容量取决于可用内存/显存，重建成功前保留原会话。"));
@@ -1043,6 +790,25 @@ struct Workbench {
             attenuationControls();
             modelFiles();
         } else if (category == 1) {
+            if(button("Uniform surface receivers","地表均匀布设",FunctionRole3D::Model,{-1,0})){
+                const int margin=staged.absorbing&&!staged.externalAbsorption?Detail::domainLayout(staged).widthX:0;
+                if(!staged.autoSurfaceReceivers)staged.receiverTargetCount=staged.receiverCount;
+                staged.autoSurfaceReceivers=true;
+                if(synchronizeSurfaceReceivers(staged,false,1024,margin))
+                    status=l("Surface receiver line staged; count adjusted for uniform node spacing. Reset / apply.","地表均匀检波器已设置；道数按整数节点间距就近调整，重置并应用后生效。");
+                else error=l("Set valid model dimensions first.","请先设置有效的模型尺寸。");
+            }
+            surfaceReceiverRect={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};
+            if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",l("Uniform X spacing along the surface; uses current count as a target. Internal absorbers are excluded. Does not change the source.",
+                "按当前道数沿X等间距铺设，贴合地表；内部吸收模式自动避开侧吸收带，不改变震源。"));
+            if(ImGui::Checkbox(l("Auto surface receivers","自动沿地表均匀布设"),&staged.autoSurfaceReceivers)&&staged.autoSurfaceReceivers)
+                staged.receiverTargetCount=staged.receiverCount;
+            autoReceiverRect={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};
+            syncSurfaceReceivers();
+            if(staged.autoSurfaceReceivers){
+                integer("Requested count (max 1024)","期望道数（最多1024）",staged.receiverTargetCount);
+                ImGui::Text("%s %d",l("Actual receivers","实际道数"),staged.receiverCount);
+            }
             if (parameterGroup(l("Source / dominant frequency", "震源与激发主频"),
                                         ImGuiTreeNodeFlags_DefaultOpen)) {
 
@@ -1059,11 +825,12 @@ struct Workbench {
                     fitAcquisition(staged);
             }
             if (parameterGroup(l("Receiver line", "接收测线"), 0)) {
-
+                ImGui::BeginDisabled(staged.autoSurfaceReceivers);
                 integer("Start X", "起点 X", staged.receiverStart);
                 integer("Count (max 1024)", "接收数（最多 1024）", staged.receiverCount);
                 integer("Index stride", "节点间隔", staged.receiverStride);
                 integer("Depth index", "深度索引", staged.receiverDepth);
+                ImGui::EndDisabled();
                 if (button("Fit source / receivers", "适配震源/接收位置", FunctionRole3D::Model, {-1, 0}))
                     fitAcquisition(staged);
                 samplingControls();
@@ -1071,16 +838,24 @@ struct Workbench {
                                            "Vx、Vz 共用输出时间轴，记录包含零时刻。"));
             }
         } else if (category == 2) {
-            if (parameterGroup(l("Compute backend", "计算核心"), ImGuiTreeNodeFlags_DefaultOpen)) {
-
+            const bool computeOpen=parameterGroup(l("Compute backend", "计算核心"), ImGuiTreeNodeFlags_DefaultOpen);
+            computeGroupRect={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};
+            if (computeOpen) {
+                const char* precisionChoices[]{l("FP64 (validation / default)","FP64（验证／默认）"),l("FP32 (fields and model)","FP32（波场与模型单精度）")};
+                ImGui::TextUnformatted(l("Calculation precision","计算精度"));ImGui::SetNextItemWidth(-1);
+                const bool precisionOpen=ImGui::BeginCombo("##2Dprecision",precisionChoices[static_cast<int>(staged.precision)]);
+                precisionRect={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};
+                if(precisionOpen){for(int option=0;option<2;++option){if(ImGui::Selectable(precisionChoices[option],static_cast<int>(staged.precision)==option))staged.precision=static_cast<Precision>(option);
+                    precisionChoiceRects[option]={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};}ImGui::EndCombo();}
+                ImGui::TextWrapped("%s",l("Precision applies to fields, model coefficients and boundary memories. Changing it rebuilds from t=0.","精度同时作用于波场、模型系数及边界记忆；修改后从零时刻重建。"));
                 ImGui::SetNextItemWidth(-1);
                 const auto availability = Seis3D::Curvilinear::selectCudaDevice3D(inventory);
                 if (ImGui::BeginCombo("##2Dbackend",
-                                      selectedBackend ? "CUDA Float64" : "CPU / OpenMP Float64")) {
-                    if (ImGui::Selectable("CPU / OpenMP Float64", selectedBackend == 0))
+                                      selectedBackend ? "CUDA" : "CPU / OpenMP")) {
+                    if (ImGui::Selectable("CPU / OpenMP", selectedBackend == 0))
                         selectedBackend = 0;
                     ImGui::BeginDisabled(!availability.available);
-                    if (ImGui::Selectable("CUDA Float64", selectedBackend == 1))
+                    if (ImGui::Selectable("CUDA", selectedBackend == 1))
                         selectedBackend = 1;
                     ImGui::EndDisabled();
                     ImGui::EndCombo();
@@ -1111,7 +886,21 @@ struct Workbench {
                 integer("Maximum steps (0=duration)", "最大步数（0=按时长）", staged.maxSteps, 100, 1000);
                 ImGui::TextDisabled("%s: %d", l("2D accepted-step limit", "二维单次推进上限"), maxTimeSteps);
                 input("DRP CFL (0.02..0.8)", "DRP CFL（0.02..0.8）", staged.cfl, .02);
-                ImGui::Checkbox(l("Enable sponge", "启用吸收海绵层"), &staged.absorbing);
+                int absorption=staged.absorbing?(staged.absorber==Absorber::CfsPml?2:1):0;
+                ImGui::TextUnformatted(l("Absorbing boundary","吸收边界"));ImGui::SetNextItemWidth(-1);
+                const char* choices[]{l("Off","关闭"),l("Sponge (legacy)","海绵（原有）"),"CFS-PML (ADE)"};
+                const bool opened=ImGui::BeginCombo("##2Dabsorption",choices[absorption]);
+                absorptionRect={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};
+                if(opened){for(int option=0;option<3;++option){
+                    if(ImGui::Selectable(choices[option],absorption==option)){staged.absorbing=option!=0;if(option)staged.absorber=option==2?Absorber::CfsPml:Absorber::Sponge;}
+                    absorptionChoiceRects[option]={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};
+                }ImGui::EndCombo();}
+                ImGui::Checkbox(l("Extend absorbing strips outside model","吸收带向模型外扩展（推荐）"),&staged.externalAbsorption);
+                externalAbsorptionRect={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};
+                if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",l("Adds left/right and bottom strips. Target model, terrain and acquisition coordinates stay unchanged. Costs additional RAM/VRAM; rebuild required.","左右、底部额外增加吸收网格；目标模型、地形及采集坐标不变。会增加内存/显存，重建后生效。"));
+                const auto domain=Detail::domainLayout(staged);
+                ImGui::TextWrapped("%s %d x %d | %s %d x %d",l("Target model","目标模型"),staged.nx,staged.nz,l("Actual computation","实际计算"),domain.nx,domain.nz);
+                if(Detail::acquisitionInAbsorber(staged)){ImGui::PushStyleColor(ImGuiCol_Text,{.8f,.15f,.05f,1});ImGui::TextWrapped("%s",l("Source support / receivers enter the absorber. Enable external strips or adjust acquisition.","震源支撑或检波器进入吸收区：建议启用外扩或调整布设。"));ImGui::PopStyleColor();}
                 integer("X sponge cells", "X 方向吸收格数", staged.spongeX);
                 integer("Bottom sponge cells", "底部吸收格数", staged.spongeZ);
                 ImGui::TextDisabled("%s: 1..%d", l("Input cells", "可输入格数"), maxSpongeCells);
@@ -1120,7 +909,12 @@ struct Workbench {
                                    std::clamp(staged.spongeX, 1, std::max(1, staged.nx / 3)) * staged.spacing,
                                    std::clamp(staged.spongeZ, 1, std::max(1, staged.nz / 3)) * staged.spacing,
                                    l("each axis <= nodes / 3; applied after rebuild", "每方向不超过节点数1/3，重建后生效"));
-                input("Sponge strength", "吸收强度", staged.spongeStrength, .1);
+                if(staged.absorber==Absorber::Sponge)input("Sponge strength", "海绵强度", staged.spongeStrength, .1);
+                else {input("Target R (1e-8..0.1)","PML目标R（1e-8..0.1）",staged.cpml.targetReflection,0,"%.3e");
+                    input("Kappa max (1..20)","PML κ最大值（1..20）",staged.cpml.kappaMax,.5);
+                    input("PML reference Hz (0=source)","PML参考频率Hz（0=随震源）",staged.cpml.frequency,1);
+                    ImGui::TextWrapped("%s",l("Target R specifies the profile, not a measured reflection guarantee. Top remains traction-free; changes require rebuild.","目标R仅用于生成轮廓，不是实测反射率保证。顶面保持自由表面，修改后需重建。"));}
+
                 samplingControls();
             }
         } else if (category == 3) {
@@ -1133,7 +927,11 @@ struct Workbench {
                 ImGui::Checkbox(l("Material model", "介质图层"), &showModel);
                 ImGui::Checkbox(l("Normalized wave colorbar", "归一化波场色标"), &normalized);
                 ImGui::Checkbox(l("Actual grid [G]", "真实节点网格 [G]"), &grid);
-                ImGui::Checkbox(l("Sponge overlay [B]", "吸收区显示 [B]"), &sponge);
+                if(ImGui::Checkbox(l("Absorber overlay [B]", "吸收区显示 [B]"), &sponge))fit=true;
+                if(sponge){
+                    ImGui::TextUnformatted(l("Boundary tint opacity", "边界着色不透明度"));ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##elasticAbsorberOpacity",&absorberOpacity,0.f,.5f,"%.2f");
+                }
                 ImGui::TextUnformatted(l("Wave palette [Q]", "波场色带 [Q]"));
                 ImGui::SetNextItemWidth(-1);
                 ImGui::Combo("##2DwavePalette", &wavePalette,
@@ -1241,20 +1039,11 @@ struct Workbench {
         else
             ImGui::TextWrapped("%s", status.c_str());
         ImGui::EndChild();
-        ImGui::SeparatorText(l("Session / rebuild", "会话与重置"));
-        ImGui::Text("%s f0 %.2f Hz | dt %.5f ms", l("Active", "生效"), simulation.parameters().frequency,
-                    simulation.dt() * 1000);
-        ImGui::TextColored(
-            functionColor3D(dirty() ? FunctionRole3D::Warning : FunctionRole3D::Run), "%s",
-            dirty() ? l("Pending changes: reset / apply or Run.", "参数待应用：重置并应用，或运行。")
-                    : l("Parameters applied", "参数已生效"));
-        if (button("Reset / apply parameters", "重置并应用参数",
-                   dirty() ? FunctionRole3D::Warning : FunctionRole3D::Model,
-                   {-1, ImGui::GetFrameHeight() * 1.4f}))
-            apply();
-        rebuildRect = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
-        const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2;
-        if (button("Undo edits", "撤销修改", FunctionRole3D::Display, {half, 0})) {
+        syncSurfaceReceivers();
+        const auto sessionActions = SeisWave::Ui::parameterSession2D(session);
+        rebuildRect = sessionActions.rebuildRect;
+        if (sessionActions.rebuild) apply();
+        if (sessionActions.undo) {
             staged = simulation.parameters();
             terrainPreset = activeTerrainPreset;
             terrainPresetSource = activeTerrainPresetSource;
@@ -1265,9 +1054,12 @@ struct Workbench {
             selectedBackend = static_cast<int>(simulation.backend().kind);
             error.clear();
         }
-        ImGui::SameLine();
-        if (button("Defaults", "恢复默认", FunctionRole3D::Display, {half, 0})) {
+        if (sessionActions.defaults) {
             staged = Parameters{};
+            staged.externalAbsorption=true;
+            staged.autoSurfaceReceivers=true;syncSurfaceReceivers();
+            if (rememberDraft)
+                staged.attenuation.enabled = navigation.current == SeisWave::Ui::Module2D::Viscoelastic;
             terrainPreset = -1;
             terrainPresetSource.clear();
             error.clear();
@@ -1304,8 +1096,11 @@ struct Workbench {
         ImGui::Text("dt = %.8f ms", simulation.dt() * 1000);
         ImGui::Text("%s %.5f ms", l("Record dt", "记录间隔"), simulation.recordDt() * 1000);
         ImGui::Text("f0 %.3f Hz | CFL %.3f", p.frequency, p.cfl);
+        if(p.absorbing&&p.absorber==Absorber::CfsPml)ImGui::Text("CFS-PML | %.2f MiB | dt limit %.6f ms",d.cpmlMemoryMiB,d.cpmlDt*1000);
         if(p.attenuation.enabled){ImGui::Text("GSLS %d | fref %.3f Hz | band %.3f..%.3f Hz",p.attenuation.mechanisms,p.attenuation.referenceFrequency,p.attenuation.minFrequency,p.attenuation.maxFrequency);if(!p.layered)ImGui::Text("Qp %.3f | Qs %.3f",p.attenuation.qp,p.attenuation.qs);}
         ImGui::Text("%d x %d | h %.4f m", p.nx, p.nz, p.spacing);
+        ImGui::Text("%s: %s",l("Field/model precision","波场／模型精度"),precisionName(p.precision));
+        ImGui::Text("%s %d x %d",l("Computation (with absorber)","计算节点（含吸收带）"),g.nx-2*ghost,g.nz-2*ghost);
         ImGui::TextUnformatted(p.source.kind == SeisWave::SourceKind::IsotropicMoment
                                    ? l("Isotropic moment source", "各向同性爆炸矩源")
                                    : l("Directional body force", "定向体力源"));
@@ -1313,7 +1108,7 @@ struct Workbench {
         ImGui::Text("%s %.5f s", l("Effective stop", "实际停止时刻"), simulation.totalSteps() * simulation.dt());
         ImGui::Text("X / Z = %.2f x %.2f m", (p.nx - 1) * p.spacing, (p.nz - 1) * p.spacing);
         ImGui::Text("%s %.3f m", l("Flatten", "展平深度"), g.flattenDepth);
-        const auto src = g.coordinates[g.index((p.sourceX < 0 ? p.nx / 2 : p.sourceX) + ghost, p.sourceZ + ghost)];
+        const auto src = g.coordinates[g.modelIndex((p.sourceX < 0 ? p.nx / 2 : p.sourceX),p.sourceZ)];
         ImGui::Text("%s (%.2f, %.2f) m", l("Source", "震源"), src[0], src[1]);
         const auto &traces = simulation.receivers();
         ImGui::Text("%zu %s | %zu %s", traces.size(), l("traces", "道"), traces.front().vx.size(), l("samples", "样点"));
@@ -1369,8 +1164,16 @@ struct Workbench {
             ROW("Source X (-1=center)", "震源 X（-1=居中）", sourceX); ROW("Source Z", "震源 Z", sourceZ);
             ROW("Duration (s)", "时长（s）", duration); ROW("Step cap (0=duration)", "步数上限（0=按时长）", maxSteps);
             ROW("CFL", "CFL", cfl); ROW("Absorption (0/1)", "吸收层（0/1）", absorbing);
+            scalar("Precision (0=FP64,1=FP32)","精度（0=FP64，1=FP32）",static_cast<int>(p.precision),static_cast<int>(staged.precision));
+            ROW("External absorber (0/1)","吸收带外扩（0/1）",externalAbsorption);
             ROW("X sponge cells", "X 吸收格数", spongeX); ROW("Z sponge cells", "底部吸收格数", spongeZ);
             ROW("Sponge strength", "吸收强度", spongeStrength);
+            scalar("Boundary kind (0=sponge,1=PML)","边界类型（0=海绵，1=PML）",static_cast<int>(p.absorber),static_cast<int>(staged.absorber));
+            if(p.absorber==Absorber::CfsPml||staged.absorber==Absorber::CfsPml){
+                scalar("PML target R","PML目标R",p.cpml.targetReflection,staged.cpml.targetReflection);
+                scalar("PML kappa max","PML κ最大值",p.cpml.kappaMax,staged.cpml.kappaMax);
+                scalar("PML Hz (0=source)","PML频率（0=随源）",p.cpml.frequency,staged.cpml.frequency);
+            }
             ROW("Receiver start", "接收起点", receiverStart); ROW("Receiver count", "接收道数", receiverCount);
             ROW("Receiver index stride", "接收节点间隔", receiverStride); ROW("Receiver depth index", "接收深度索引", receiverDepth);
             ROW("Sample interval ms (0=dt)", "采样毫秒（0=dt）", sampleIntervalMs);
@@ -1389,9 +1192,11 @@ struct Workbench {
         }
         ImGui::SeparatorText(l("Numerical diagnostics", "数值诊断"));
         ImGui::Text("PPW %.3f | J min %.6f", d.ppw, g.minJacobian);
+        ImGui::Text("%s | RAM %.1f MiB | CUDA %.1f MiB",precisionName(p.precision),d.residentHostArrayBytes/(1024.*1024),d.residentDeviceBytes/(1024.*1024));
         ImGui::Text("dt wave %.6f ms", d.waveDt * 1000);
         ImGui::Text("dt damping %.6f ms", d.dampingDt * 1000);
         ImGui::Text("dt source %.6f ms", d.sourceDt * 1000);
+        if(p.absorbing&&p.absorber==Absorber::CfsPml)ImGui::Text("CFS-PML | %.2f MiB | dt limit %.6f ms",d.cpmlMemoryMiB,d.cpmlDt*1000);
         if(p.attenuation.enabled){ImGui::Text("GSLS %d | state fields %d | dt relax %.6f ms",p.attenuation.mechanisms,d.stateFields,d.relaxationDt*1000);ImGui::TextWrapped(l("Maximum fitted Q error %.2f%%; energy is an elastic-equivalent diagnostic, not total viscoelastic energy.","Q 拟合最大相对误差 %.2f%%；能量为弹性等效诊断，不是黏弹性总能量。"),d.maxRelativeQError*100);}
         ImGui::Text("%s %d", l("CPU workers", "生效 CPU 线程"), simulation.backend().workerThreads);
         ImGui::Text("%s %d", l("CUDA device", "生效 CUDA 卡"), simulation.backend().cudaDevice);
@@ -1403,13 +1208,22 @@ struct Workbench {
         if (!waveWindow)
             return;
         const auto waveTitle=label("Curved X-Z wavefield", "曲面 X–Z 波场");
-        if (!ImGui::Begin(waveTitle.c_str(), &waveWindow,workspace.prepare(waveTitle.c_str()))) {
+        const auto waveFlags=workspace.prepare(waveTitle.c_str());
+        if(workspace.focused==waveTitle){
+            if(const auto* commands=ImGui::FindWindowByName("##2DCommands")){
+                const auto* viewport=ImGui::GetMainViewport();
+                const float top=std::max(viewport->WorkPos.y,commands->Pos.y+commands->Size.y)+3;
+                ImGui::SetNextWindowPos({viewport->WorkPos.x+3,top});
+                ImGui::SetNextWindowSize({viewport->WorkSize.x-6,viewport->WorkPos.y+viewport->WorkSize.y-top-3});
+            }
+        }
+        if (!ImGui::Begin(waveTitle.c_str(), &waveWindow,waveFlags)) {
             ImGui::End();
             return;
         }
         workspace.tools(waveTitle.c_str());
         std::string frameError;
-        if (!simulation.readFrame(component, frame, frameError)) {
+        if (!simulation.readFrame(component, frame, frameError, true)) {
             error = frameError;
             ImGui::TextWrapped("%s",frameError.empty()?l("Refreshing wavefield in background...","后台正在刷新波场…"):frameError.c_str());
             ImGui::End();
@@ -1418,12 +1232,20 @@ struct Workbench {
         const auto &p = simulation.parameters();
         const auto &g = simulation.grid();
         const auto &material = modelComponent == 0 ? g.vp : modelComponent == 1 ? g.vs : g.density;
-        const auto mm = std::minmax_element(material.begin(), material.end());
-        const double minMaterial = *mm.first, maxMaterial = *mm.second;
+        double minMaterial=std::numeric_limits<double>::infinity(),maxMaterial=-minMaterial;
+        for(int k=0;k<p.nz;++k){const auto row=material.begin()+g.modelIndex(0,k);const auto mm=std::minmax_element(row,row+p.nx);
+            minMaterial=std::min(minMaterial,*mm.first);maxMaterial=std::max(maxMaterial,*mm.second);}
+        const auto domain=Detail::domainLayout(p);
+        const auto frameIndex=[&](int i,int k){return std::size_t(k)*domain.nx+(i+domain.offsetX);};
+        const bool externalOverlay=p.absorbing&&p.externalAbsorption&&sponge;
+        if(externalOverlay!=lastExternalOverlay){fit=true;lastExternalOverlay=externalOverlay;}
+        if(p.absorbing&&p.externalAbsorption)ImGui::TextWrapped("%s",l("B: real absorber wavefield with translucent amber tint; target and absorber share the wave scale. Exports retain the target domain.","B：半透明浅橙色吸收区叠加真实波场，内外共用波场色标；导出仍为目标模型范围。"));
         double peak = 1e-30;
-        for (float v : frame)
-            peak = std::max(peak, std::abs(static_cast<double>(v)));
+        for(int k=0;k<p.nz;++k)for(int i=0;i<p.nx;++i)
+            peak=std::max(peak,std::abs(double(frame[frameIndex(i,k)])));
         const double range = peak / gain;
+        displayedWaveRange=range;
+        renderedAbsorberCells=0;
         const bool compactPlot = ImGui::GetContentRegionAvail().y < ImGui::GetFontSize() * 13;
         if (ImGui::GetContentRegionAvail().x < 700)
             ImGui::Text("%d x %d | %.1f x %.1f m", p.nx, p.nz, (p.nx - 1) * p.spacing,
@@ -1445,26 +1267,29 @@ struct Workbench {
             // Fitting both bounds lets Equal expand the shorter axis, keeping the
             // complete model in view without distorting physical aspect ratios.
             const double xmax = (p.nx - 1) * p.spacing, zmax = (p.nz - 1) * p.spacing;
+            const double fitLeft=externalOverlay?-domain.widthX*p.spacing:0,
+                         fitRight=externalOverlay?xmax+domain.widthX*p.spacing:xmax,
+                         fitBottom=externalOverlay?zmax+domain.widthZ*p.spacing:zmax;
             double zmin = 0;
-            for (int i = 0; i < p.nx; ++i)
-                zmin = std::min(zmin, g.coordinates[g.index(i + ghost, ghost)][1]);
+            for (int i = externalOverlay?-domain.offsetX:0; i < p.nx+(externalOverlay?domain.offsetX:0); ++i)
+                zmin = std::min(zmin, g.coordinates[g.modelIndex(i,0)][1]);
             if (plotHeight < ImGui::GetFontSize() * 10) {
                 ImPlot::SetupAxisTicks(ImAxis_X1, 0, xmax, 3);
                 ImPlot::SetupAxisTicks(ImAxis_Y1, 0, zmax, 2);
                 ImPlot::SetupAxisFormat(ImAxis_X1, "%.3g");
                 ImPlot::SetupAxisFormat(ImAxis_Y1, "%.3g");
             }
-            const double boundsX[]{-.02 * xmax, 1.02 * xmax},
-                boundsZ[]{zmin - .02 * (zmax - zmin), zmax + .02 * (zmax - zmin)};
+            const double boundsX[]{fitLeft-.02*(fitRight-fitLeft),fitRight+.02*(fitRight-fitLeft)},
+                boundsZ[]{zmin-.02*(fitBottom-zmin),fitBottom+.02*(fitBottom-zmin)};
             ImPlot::SetNextLineStyle({0, 0, 0, 0});
             ImPlot::PlotLine("##modelBounds", boundsX, boundsZ, 2);
             const auto limits = ImPlot::GetPlotLimits();
             domainVisible =
-                limits.X.Min <= 0 && limits.X.Max >= xmax && limits.Y.Min <= zmin && limits.Y.Max >= zmax;
+                limits.X.Min <= fitLeft && limits.X.Max >= fitRight && limits.Y.Min <= zmin && limits.Y.Max >= fitBottom;
             auto *draw = ImPlot::GetPlotDrawList();
             ImPlot::PushPlotClipRect();
             const auto toPixel = [&](int i, int k) {
-                const auto x = g.coordinates[g.index(i + ghost, k + ghost)];
+                const auto x = g.coordinates[g.modelIndex(i,k)];
                 return ImPlot::PlotToPixels(x[0], x[1]);
             };
             const auto plotSize = ImPlot::GetPlotSize();
@@ -1472,43 +1297,46 @@ struct Workbench {
                 std::max(1, static_cast<int>(std::ceil((p.nx - 1) / std::max(64.f, plotSize.x / 2))));
             renderStrideZ =
                 std::max(1, static_cast<int>(std::ceil((p.nz - 1) / std::max(64.f, plotSize.y / 2))));
-            for (int k = 0; k < p.nz - 1; k += renderStrideZ)
-                for (int i = 0; i < p.nx - 1; i += renderStrideX) {
-                    const int i1 = std::min(p.nx - 1, i + renderStrideX),
-                              k1 = std::min(p.nz - 1, k + renderStrideZ);
-                    ImVec2 points[4]{toPixel(i, k), toPixel(i1, k), toPixel(i1, k1), toPixel(i, k1)};
-                    ImU32 colors[4];
-                    const int xx[]{i, i1, i1, i}, zz[]{k, k, k1, k1};
-                    for (int v = 0; v < 4; ++v) {
-                        const auto q = g.index(xx[v] + ghost, zz[v] + ghost);
-                        const double model = maxMaterial > minMaterial
-                                                 ? (material[q] - minMaterial) / (maxMaterial - minMaterial)
-                                                 : .45;
-                        auto base = showModel
-                                        ? ImGui::ColorConvertU32ToFloat4(paletteColor(model, modelPalette))
-                                        : palette3D().background;
-                        const double norm =
-                            std::clamp(frame[xx[v] + p.nx * zz[v]] / range, component == 2 ? 0.0 : -1.0, 1.0);
-                        if (showWave) {
-                            const auto wave = ImGui::ColorConvertU32ToFloat4(
-                                paletteColor(component == 2 ? norm : .5 + .5 * norm, wavePalette));
-                            const float alpha =
-                                showModel ? static_cast<float>(std::min(1.0, std::abs(norm) * 4)) : .95f;
-                            base = {base.x * (1 - alpha) + wave.x * alpha,
-                                    base.y * (1 - alpha) + wave.y * alpha,
-                                    base.z * (1 - alpha) + wave.z * alpha, 1};
-                        }
-                        if (sponge && p.absorbing &&
-                            (xx[v] < std::min(p.spongeX, p.nx / 3) ||
-                             xx[v] >= p.nx - std::min(p.spongeX, p.nx / 3) ||
-                             zz[v] >= p.nz - std::min(p.spongeZ, p.nz / 3))) {
-                            base.x = base.x * .8f + .2f;
-                            base.y = base.y * .8f + .1f;
-                        }
-                        colors[v] = ImGui::ColorConvertFloat4ToU32(base);
+            const auto renderCell=[&](int i,int k,int i1,int k1,bool absorberCell){
+                const ImVec2 points[4]{toPixel(i,k),toPixel(i1,k),toPixel(i1,k1),toPixel(i,k1)};
+                ImU32 colors[4];
+                const int xx[]{i,i1,i1,i},zz[]{k,k,k1,k1};
+                for(int v=0;v<4;++v){
+                    const auto q=g.modelIndex(xx[v],zz[v]);
+                    const double model=maxMaterial>minMaterial?(material[q]-minMaterial)/(maxMaterial-minMaterial):.45;
+                    auto base=showModel?ImGui::ColorConvertU32ToFloat4(paletteColor(model,modelPalette)):palette3D().background;
+                    const double norm=std::clamp(frame[frameIndex(xx[v],zz[v])]/range,component==2?0.:-1.,1.);
+                    if(showWave){
+                        const auto wave=ImGui::ColorConvertU32ToFloat4(paletteColor(component==2?norm:.5+.5*norm,wavePalette));
+                        const float alpha=showModel?static_cast<float>(std::min(1.,std::abs(norm)*4)):.95f;
+                        base={base.x*(1-alpha)+wave.x*alpha,base.y*(1-alpha)+wave.y*alpha,base.z*(1-alpha)+wave.z*alpha,1};
                     }
-                    quad(draw, points, colors);
+                    if(absorberCell)base=SeisWave::Ui::tintAbsorber2D(base,absorberOpacity);
+                    // Preserve the legacy internal-strip hue, with adjustable opacity.
+                    if(sponge&&p.absorbing&&!p.externalAbsorption&&
+                        (xx[v]<domain.widthX||xx[v]>=p.nx-domain.widthX||zz[v]>=p.nz-domain.widthZ)){
+                        base.x=base.x*(1-absorberOpacity)+absorberOpacity;
+                        base.y=base.y*(1-absorberOpacity)+.5f*absorberOpacity;
+                    }
+                    colors[v]=ImGui::ColorConvertFloat4ToU32(base);
                 }
+                quad(draw,points,colors);
+                if(absorberCell){
+                    ++renderedAbsorberCells;
+                    if(grid)draw->AddPolyline(points,4,IM_COL32(177,106,26,90),ImDrawFlags_Closed,.5f);
+                }
+            };
+            if(externalOverlay){
+                const auto strip=[&](int x0,int x1,int z0,int z1){
+                    for(int k=z0;k<z1;k+=renderStrideZ)for(int i=x0;i<x1;i+=renderStrideX)
+                        renderCell(i,k,std::min(x1,i+renderStrideX),std::min(z1,k+renderStrideZ),true);
+                };
+                strip(-domain.offsetX,0,0,p.nz-1+domain.widthZ);
+                strip(p.nx-1,p.nx-1+domain.offsetX,0,p.nz-1+domain.widthZ);
+                strip(0,p.nx-1,p.nz-1,p.nz-1+domain.widthZ);
+            }
+            for(int k=0;k<p.nz-1;k+=renderStrideZ)for(int i=0;i<p.nx-1;i+=renderStrideX)
+                renderCell(i,k,std::min(p.nx-1,i+renderStrideX),std::min(p.nz-1,k+renderStrideZ),false);
             if (grid) {
                 for (int k = 0;; k = std::min(p.nz - 1, k + renderStrideZ)) {
                     for (int i = 0; i < p.nx - 1; i += renderStrideX)
@@ -1699,6 +1527,135 @@ struct Workbench {
 } // namespace
 #include "WorkflowCapture2D.inc"
 
+int validatePrecisionWorkflow2D(){
+    std::string error;SeisWave::Ui::AppRuntime runtime;
+    if(!runtime.open("2D precision workflow",true,error))throw std::runtime_error(error);
+    glfwSetWindowSize(runtime.window(),2560,1494);setLanguage3D(1);applyTheme3D(11);SeisWave::Ui::setParameterDisplayMode(2,0);
+    Workbench app;app.staged.nx=96;app.staged.nz=80;app.staged.sourceZ=16;app.staged.receiverCount=20;app.staged.relief=2;app.staged.duration=.08;app.staged.maxSteps=0;app.staged.absorber=Absorber::CfsPml;app.staged.attenuation.enabled=true;
+    if(app.staged.precision!=Precision::Float64||!app.apply())throw std::runtime_error("Default precision changed / build failed: "+app.error);
+    const auto doubleBytes=app.simulation.diagnostics().modelArrayBytes;
+    app.category=2;++app.groupEpoch;app.groupsExpanded=true;
+    const auto draw=[&]{runtime.begin();app.toolbar();app.controls();app.activeParameters();app.wavefield();app.records();runtime.present();};
+    auto& io=ImGui::GetIO();io.AddFocusEvent(true);for(int i=0;i<5;++i)draw();
+    const auto click=[&](ImRect rect){const auto at=rect.GetCenter();io.AddMousePosEvent(at.x,at.y);draw();draw();io.AddMouseButtonEvent(0,true);draw();io.AddMouseButtonEvent(0,false);draw();draw();};
+    click(app.precisionRect);click(app.precisionChoiceRects[1]);
+    if(app.staged.precision!=Precision::Float32||app.simulation.parameters().precision!=Precision::Float64||!app.dirty())throw std::runtime_error("Precision combo failed to stage FP32");
+    if(!app.apply()||app.simulation.step()!=0||app.simulation.grid().vp.precision()!=Precision::Float32||app.simulation.diagnostics().modelArrayBytes*2!=doubleBytes||!app.simulation.advance(60,error))throw std::runtime_error("FP32 GUI rebuild/model storage/advance failed: "+app.error+error);
+    const auto folder=SeisWave::Ui::outputRoot()/"validation/precision-2d/ui";std::filesystem::create_directories(folder);
+    const auto file=folder/"fp32_model.vts";if(!writeModelVts(app.simulation,file,app.activeSettings,error))throw std::runtime_error(error);
+    const auto path=file.u8string();std::snprintf(app.modelPath.data(),app.modelPath.size(),"%s",reinterpret_cast<const char*>(path.c_str()));
+    app.staged.precision=Precision::Float64;if(!app.loadModel()||app.dirty()||app.staged.precision!=Precision::Float32||app.simulation.step()!=0)throw std::runtime_error("GUI model load lost selected precision: "+app.error);
+    if(!app.simulation.advance(60,error))throw std::runtime_error(error);
+    io.AddMousePosEvent(-100,-100);app.fit=true;for(int i=0;i<5;++i)draw();int w{},h{};glfwGetFramebufferSize(runtime.window(),&w,&h);
+    if(!SeisWave::Ui::capture(folder/"fp32-parameters.ppm",w,h)||!app.domainVisible||glGetError()!=GL_NO_ERROR)throw std::runtime_error("FP32 UI capture/render failed");
+    click(app.precisionRect);click(app.precisionChoiceRects[0]);
+    if(!app.dirty()||!app.apply()||app.simulation.step()!=0||app.simulation.grid().vp.precision()!=Precision::Float64||app.simulation.diagnostics().modelArrayBytes!=doubleBytes)throw std::runtime_error("FP64 switch back did not rebuild / clear old run: "+app.error);
+    std::cout<<"Precision UI PASS: FP64 default, real FP32/FP64 combo, staged/apply, model storage halves, GSLS/PML advance, VTS reload, switch back clears run\n";return 0;
+}
+
+int validateCfsPmlWorkflow2D(){
+    std::string error;SeisWave::Ui::AppRuntime runtime;
+    if(!runtime.open("2D CFS-PML workflow",true,error))throw std::runtime_error(error);
+    glfwSetWindowSize(runtime.window(),2560,1494);setLanguage3D(1);applyTheme3D(11);SeisWave::Ui::setParameterDisplayMode(2,0);
+    Workbench app;app.staged.nx=96;app.staged.nz=80;app.staged.sourceZ=16;app.staged.receiverCount=20;app.staged.receiverTargetCount=20;app.staged.relief=2;app.staged.duration=.08;app.staged.maxSteps=0;
+    if(!app.apply())throw std::runtime_error(app.error);
+    app.category=2;++app.groupEpoch;app.groupsExpanded=true;
+    const auto draw=[&]{runtime.begin();app.toolbar();app.controls();app.activeParameters();app.wavefield();app.records();runtime.present();};
+    auto& io=ImGui::GetIO();io.AddFocusEvent(true);for(int i=0;i<5;++i)draw();
+    const auto click=[&](ImRect rect){const auto at=rect.GetCenter();io.AddMousePosEvent(at.x,at.y);draw();draw();io.AddMouseButtonEvent(0,true);draw();io.AddMouseButtonEvent(0,false);draw();draw();};
+    click(app.computeGroupRect);click(app.absorptionRect);click(app.absorptionChoiceRects[2]);
+    if(app.staged.absorber!=Absorber::CfsPml||app.simulation.parameters().absorber!=Absorber::Sponge||!app.dirty()){
+        int w{},h{};glfwGetFramebufferSize(runtime.window(),&w,&h);SeisWave::Ui::capture(SeisWave::Ui::outputRoot()/"validation/cfs-pml-2d/ui_failure.ppm",w,h);
+        std::cout<<"PML rect "<<app.absorptionRect.Min.x<<","<<app.absorptionRect.Min.y<<" choice "<<app.absorptionChoiceRects[2].Min.x<<","<<app.absorptionChoiceRects[2].Min.y<<" stage "<<static_cast<int>(app.staged.absorber)<<" active "<<static_cast<int>(app.simulation.parameters().absorber)<<std::endl;
+        throw std::runtime_error("PML dropdown failed to stage the actual selection");}
+
+    if(!app.apply()||!app.simulation.advance(30,error)||app.simulation.diagnostics().cpmlScalars==0)throw std::runtime_error("PML GUI rebuild/advance failed: "+app.error+error);
+    if(!app.simulation.parameters().externalAbsorption||app.simulation.grid().modelOffsetX!=16)throw std::runtime_error("New workbench did not enable external strips");
+    click(app.externalAbsorptionRect);
+    if(app.staged.externalAbsorption||!app.simulation.parameters().externalAbsorption||!app.dirty())throw std::runtime_error("External strip toggle staging failed");
+    if(!app.apply()||app.simulation.grid().modelOffsetX!=0)throw std::runtime_error("Legacy internal strip rebuild failed");
+    for(int i=0;i<3;++i)draw();click(app.externalAbsorptionRect);
+    if(!app.apply()||!app.simulation.advance(30,error)||app.simulation.grid().modelOffsetX!=16)throw std::runtime_error("External strip rebuild failed");
+    io.AddMousePosEvent(-100,-100);app.sponge=true;app.fit=true;for(int i=0;i<5;++i)draw();
+    int ew{},eh{};glfwGetFramebufferSize(runtime.window(),&ew,&eh);
+    if(!SeisWave::Ui::capture(SeisWave::Ui::outputRoot()/"validation/cfs-pml-2d/external-absorption.ppm",ew,eh)||!app.domainVisible)throw std::runtime_error("External absorber view did not retain complete model");
+    app.sponge=false;app.fit=true;
+    for(int i=0;i<5;++i)draw();
+    const auto path=SeisWave::Ui::outputRoot()/"validation/cfs-pml-2d/parameters.ppm";
+    int width{},height{};glfwGetFramebufferSize(runtime.window(),&width,&height);if(!SeisWave::Ui::capture(path,width,height)||glGetError()!=GL_NO_ERROR)throw std::runtime_error("PML UI capture failed");
+    app.category=1;app.groupsExpanded=true;++app.groupEpoch;for(int i=0;i<3;++i)draw();
+    app.staged.autoSurfaceReceivers=false;app.staged.receiverDepth=2;
+    if(!app.apply())throw std::runtime_error(app.error);
+    for(int i=0;i<3;++i)draw();
+    const auto oldSurvey=app.simulation.parameters();click(app.surfaceReceiverRect);
+    if(app.staged.receiverDepth!=0||app.simulation.parameters()!=oldSurvey||!app.dirty())
+        throw std::runtime_error("Surface survey shortcut changed active data or missed surface row");
+    if(!app.apply()||app.simulation.receivers().size()!=std::size_t(app.staged.receiverCount))throw std::runtime_error(app.error);
+    for(const auto& r:app.simulation.receivers()){
+        const auto q=app.simulation.grid().modelIndex(r.x,0);
+        if(r.z!=0||r.position!=app.simulation.grid().coordinates[q])throw std::runtime_error("Elastic surface receiver did not follow terrain");
+    }
+    const auto requestedCount=app.staged.receiverTargetCount;
+    const auto activeSurface=app.simulation.parameters();app.staged.nx+=40;
+    for(int i=0;i<3;++i)draw();const auto aligned=app.staged;
+    for(int i=0;i<5;++i)draw();
+    if(app.staged!=aligned||app.staged.receiverTargetCount!=requestedCount||app.simulation.parameters()!=activeSurface)
+        throw std::runtime_error("Elastic automatic line drifted or changed active data during resize");
+    if(!app.apply()||!app.simulation.advance(30,error))throw std::runtime_error(app.error+error);
+    for(const auto&r:app.simulation.receivers())if(r.z!=0||r.position!=app.simulation.grid().coordinates[app.simulation.grid().modelIndex(r.x,0)])
+        throw std::runtime_error("Elastic automatic resized line missed terrain surface");
+    if(!app.simulation.advance(100,error))throw std::runtime_error(error);
+    glfwSetWindowSize(runtime.window(),1600,1000);app.layout=true;io.AddMousePosEvent(-100,-100);for(int i=0;i<4;++i)draw();
+    int aw{},ah{};glfwGetFramebufferSize(runtime.window(),&aw,&ah);
+    if(!SeisWave::Ui::capture(SeisWave::Ui::outputRoot()/"screenshots/auto-surface/elastic.ppm",aw,ah))throw std::runtime_error("Elastic auto capture failed");
+    click(app.autoReceiverRect);if(app.staged.autoSurfaceReceivers)throw std::runtime_error("Elastic auto toggle did not disable");
+    app.staged.receiverStart=3;app.staged.receiverCount=5;app.staged.receiverStride=4;app.staged.receiverDepth=3;
+    if(!app.apply()||app.simulation.receivers().size()!=5||app.simulation.receivers()[0].z!=3)
+        throw std::runtime_error("Elastic manual line was overwritten after disabling auto");
+    std::filesystem::create_directories(SeisWave::Ui::outputRoot()/"validation/auto-surface-2026-10-31");
+    std::ofstream(SeisWave::Ui::outputRoot()/"validation/auto-surface-2026-10-31/elastic-ui.txt")<<"PASS: actual surface preset / automatic resize / stable desired count / active data isolation / applied terrain coordinates / manual override\n";
+    const auto captureFolder=SeisWave::Ui::outputRoot()/"screenshots/absorber-display";
+    std::filesystem::create_directories(captureFolder);
+    glfwSetWindowSize(runtime.window(),1600,1000);
+    for(bool q:{false,true}){
+        app.staged=Parameters{};app.staged.nx=161;app.staged.nz=121;app.staged.spacing=2;
+        app.staged.vp=550;app.staged.vs=250;app.staged.density=1550;app.staged.relief=2;
+        app.staged.wavelength=160;app.staged.flattenDepth=100;app.staged.frequency=20;
+        app.staged.sourceX=12;app.staged.sourceZ=30;app.staged.receiverStart=10;
+        app.staged.receiverCount=40;app.staged.receiverStride=3;app.staged.receiverDepth=2;
+        app.staged.duration=.22;app.staged.maxSteps=0;app.staged.absorber=Absorber::CfsPml;
+        app.staged.externalAbsorption=true;app.staged.precision=Precision::Float32;
+        app.staged.attenuation.enabled=q;app.staged.attenuation.referenceFrequency=20;
+        app.selectedBackend=0;app.settings.cpuThreads=1;
+        if(!app.apply()||!app.simulation.advance(static_cast<int>(.18/app.simulation.dt()),error))throw std::runtime_error(app.error+error);
+        app.category=3;app.component=0;app.showModel=true;app.showWave=true;
+        app.sponge=false;app.fit=true;for(int i=0;i<4;++i)draw();
+        const double targetRange=app.displayedWaveRange;
+        const auto physicalFrame=app.frame;
+        app.sponge=true;app.fit=true;for(int i=0;i<4;++i)draw();
+        if(app.renderedAbsorberCells==0||!app.domainVisible||app.displayedWaveRange!=targetRange||app.frame!=physicalFrame)
+            throw std::runtime_error("Elastic absorber wavefield or shared normalization failed");
+        app.absorberOpacity=0;draw();
+        if(app.frame!=physicalFrame||app.displayedWaveRange!=targetRange)throw std::runtime_error("Tint changed elastic field");
+        app.absorberOpacity=SeisWave::Ui::defaultAbsorberOpacity2D;
+        // Publish the existing maximized wavefield view, without dense grid lines
+        // obscuring the small pulse. This does not change normal workspace defaults.
+        app.grid=false;app.workspace.focused=label("Curved X-Z wavefield", "曲面 X–Z 波场");
+        app.workspace.focusNew=true;app.fit=true;for(int i=0;i<3;++i)draw();
+        const auto* waveWindow=ImGui::FindWindowByName(app.workspace.focused.c_str());
+        const auto* commands=ImGui::FindWindowByName("##2DCommands");
+        if(!waveWindow||!commands||waveWindow->Pos.y<commands->Pos.y+commands->Size.y)
+            throw std::runtime_error("Maximized wavefield covered run commands");
+        int w{},h{};glfwGetFramebufferSize(runtime.window(),&w,&h);
+        if(w!=1600||h!=1000||!SeisWave::Ui::capture(captureFolder/(q?"viscoelastic.ppm":"elastic.ppm"),w,h)||glGetError()!=GL_NO_ERROR)
+            throw std::runtime_error("Tinted elastic absorber screenshot failed");
+    }
+    const auto folder=SeisWave::Ui::outputRoot()/"validation/absorber-display-2026-10-31";
+    std::filesystem::create_directories(folder);
+    std::ofstream(folder/"elastic-ui.txt")<<"PASS: elastic/GSLS external wavefield rendered; full-domain fit; target-only scale unchanged by B; original amber hue at 14% opacity; tint does not modify physical data\n";
+    std::cout<<"CFS-PML UI PASS: real dropdown, staged selection, rebuild, advance, memory and dt diagnostics; external/internal toggle; elastic/GSLS real absorber wavefield with translucent amber\n";return 0;
+}
+
 int validateAttenuationWorkflow2D() {
     std::string error;SeisWave::Ui::AppRuntime runtime;
     if(!runtime.open("2D Qp/Qs workflow",true,error))throw std::runtime_error(error);
@@ -1750,6 +1707,9 @@ int validateModelWorkflow2D() {
     app.staged.frequency = 50; app.staged.spacing = 2; app.staged.sampleIntervalMs = 1;
     if (!app.apply() || app.dirty() || app.simulation.dt() == dt || app.liveRecords().dt != .001)
         throw std::runtime_error("2D rebuild failed to synchronize dt / record interval / parameters");
+    if(!app.simulation.advance(3,error))throw std::runtime_error(error);
+    const double elapsedBeforeLayouts=app.simulation.diagnostics().totalStepMs;
+    if(!(elapsedBeforeLayouts>0))throw std::runtime_error("2D elapsed timer did not advance");
     for (int i = 0; i < 6; ++i) {
         const int sizes[3][2]{{1600,1000},{1280,800},{960,640}};
         const int *size = sizes[i % 3];
@@ -1766,6 +1726,9 @@ int validateModelWorkflow2D() {
         }
         const auto *parameters = ImGui::FindWindowByName(label("Parameters and run", "参数与运行").c_str());
         const auto *summary = ImGui::FindWindowByName(label("Active simulation parameters", "当前模拟参数").c_str());
+        const auto* commands=ImGui::FindWindowByName("##2DCommands");
+        if(!commands||!commands->InnerRect.Contains(app.elapsedRect)||app.elapsedRect.GetWidth()<=0||app.simulation.diagnostics().totalStepMs!=elapsedBeforeLayouts)
+            throw std::runtime_error("2D timer clipped or counted paused presentation time");
         if (!parameters || !summary || !summary->Active ||
             !parameters->DockId || parameters->DockId != summary->DockId ||
             summary->Size.x < 150 || !app.domainVisible || app.liveRecords().dt != .001)
@@ -1859,12 +1822,16 @@ int validateModelWorkflow2D() {
         runtime.present();
     }
     std::cout << "PASS workflow guards: rejected survey edit pauses and preserves model/records; blank SEG-Y path rejected; empty/mismatched/invalid-dt analysis is safe\n";
+    app.clear();
+    if(app.simulation.diagnostics().totalStepMs!=0||!app.prepareRun(false)||!app.simulation.advance(1,error)||!(app.simulation.diagnostics().totalStepMs>0)||!app.apply()||app.simulation.diagnostics().totalStepMs!=0)
+        throw std::runtime_error("2D elapsed timer clear / step / rebuild failed: "+app.error+error);
+    std::cout<<"PASS 2D elapsed timer: visible at 960/1280/1600 px in both languages; paused time excluded; clear/step/rebuild\n";
     std::cout << "PASS 2D model UI: UTF-8 VTS restore, staged/active synchronization, recomputed dt, 0.5/1 ms records, "
                  "responsive summary in 6 bilingual/theme/size/font layouts; actual snapshot controls follow pressure / manual Vz+pressure export; legacy SEG-Y gain/sampling\n";
     return 0;
 }
 #include "ThemePanelValidation2D.inc"
-int runWorkbench2D(bool smoke, bool homeTest) {
+int runWorkbench2D(bool smoke, bool homeTest, bool imagingRouteTest, bool viscoelastic) {
     if(smoke)SeisWave::Ui::setParameterDisplayMode(2,0);
     std::string error;
     SeisWave::Ui::AppRuntime runtime;
@@ -1875,7 +1842,25 @@ int runWorkbench2D(bool smoke, bool homeTest) {
     if (smoke)
         std::filesystem::create_directories(SeisWave::Ui::outputRoot() / "screenshots/two-d");
     std::filesystem::create_directories(SeisWave::Ui::outputRoot() / "validation/two-d");
-    Workbench app;
+    Workbench app(viscoelastic,!smoke);
+    if (smoke && !homeTest) {
+        const auto savedDrafts = elasticDrafts2D;
+        for (bool q : {false, true}) {
+            Workbench isolated(q, true);
+            isolated.staged.frequency = q ? 25 : 20;
+        }
+        for (bool q : {false, true}) {
+            Workbench restored(q, true);
+            if (restored.staged.frequency != (q ? 25 : 20) || restored.staged.attenuation.enabled != q)
+                throw std::runtime_error("Elastic/viscoelastic drafts are not independent");
+            restored.staged.attenuation.enabled = !q;
+            if (restored.apply() || restored.simulation.initialized())
+                throw std::runtime_error("Rebuild allocated a different physics module before routing");
+            restored.staged.attenuation.enabled = q;
+        }
+        elasticDrafts2D = savedDrafts;
+        std::cout << "2D mode isolation PASS: separate elastic/viscoelastic drafts; no foreign rebuild\n";
+    }
     if (smoke) {
         app.staged.nx = app.staged.nz = 160;
         app.staged.spacing = 2.5;
@@ -1887,8 +1872,12 @@ int runWorkbench2D(bool smoke, bool homeTest) {
         fitAcquisition(app.staged);
     }
     if (!app.apply()) {
-        std::cerr << app.error << '\n';
-        return 2;
+        if(smoke){std::cerr<<app.error<<'\n';return 2;}
+        const auto pending=app.staged;const auto settings=app.settings;const int backend=app.selectedBackend;const auto reason=app.error;
+        app.staged=Parameters{};app.staged.externalAbsorption=true;app.staged.attenuation.enabled=viscoelastic;app.settings={};app.selectedBackend=0;
+        if(!app.apply()){std::cerr<<app.error<<'\n';return 2;}
+        app.staged=pending;app.settings=settings;app.selectedBackend=backend;
+        app.error=std::string(l("Copied model could not be initialized; edit the pending inputs: ","复制模型无法初始化，请修改待应用参数："))+reason;
     }
     if (smoke) {
         if (!app.simulation.advance(app.simulation.totalSteps(), app.error)) {
@@ -2183,12 +2172,16 @@ int runWorkbench2D(bool smoke, bool homeTest) {
             }
         }
         if (homeTest && frame == 2) {
-            const auto at = app.homeRect.GetCenter();
+            const auto at = imagingRouteTest?app.imagingRect.GetCenter():app.homeRect.GetCenter();
             io.AddMousePosEvent(at.x, at.y);
             io.AddMouseButtonEvent(0, true);
         }
         if (homeTest && frame == 3)
             io.AddMouseButtonEvent(0, false);
+        if(homeTest&&imagingRouteTest){
+            if(frame==4||frame==6){const auto point=(frame==4?app.navigation.acousticRect:app.navigation.rtmRect).GetCenter();io.AddMousePosEvent(point.x,point.y);io.AddMouseButtonEvent(0,true);}
+            if(frame==5||frame==7)io.AddMouseButtonEvent(0,false);
+        }
         if(!app.simulation.poll(app.error))app.running=false;
         if(app.running) {
             app.simulation.queue(8,16);
@@ -2198,6 +2191,7 @@ int runWorkbench2D(bool smoke, bool homeTest) {
         app.toolbar();
         app.controls();
         app.modelDialogs();
+        app.syncSurfaceReceivers();
         app.activeParameters();
         if (app.dirty())
             app.running = false;
@@ -2207,9 +2201,19 @@ int runWorkbench2D(bool smoke, bool homeTest) {
         if(app.dirty())app.running=false;
         app.shortcuts();
         runtime.present();
+        if(homeTest&&imagingRouteTest&&(frame==3||frame==5)){
+            int w,h;glfwGetFramebufferSize(runtime.window(),&w,&h);
+            SeisWave::Ui::capture(SeisWave::Ui::outputRoot()/(frame==3?"screenshots/module-ui/elastic-menu.ppm":"screenshots/module-ui/acoustic-submenu.ppm"),w,h);
+        }
         if (app.home) {
             std::cout << "2D Home route PASS\n";
             return SeisWave::Ui::returnHome;
+        }
+        if(app.navigation.requested)return app.navigation.requested;
+        if(!smoke&&app.staged.attenuation.enabled!=(app.navigation.current==SeisWave::Ui::Module2D::Viscoelastic)){
+            const auto target=app.staged.attenuation.enabled?SeisWave::Ui::Module2D::Viscoelastic:SeisWave::Ui::Module2D::Elastic;
+            SeisWave::Ui::modelMailbox2D().post(target,{app.navigation.current,app.staged,app.settings,static_cast<BackendKind3D>(app.selectedBackend)});
+            return SeisWave::Ui::moduleRoute(target);
         }
         if (smoke && !homeTest && frame == 83) {
             const auto *help =
@@ -2287,7 +2291,7 @@ int runWorkbench2D(bool smoke, bool homeTest) {
                 // Continue with real widget edits, reset, SEG-Y and keyboard checks.
             }
         }
-        if (homeTest && frame > 8)
+        if (homeTest && frame > (imagingRouteTest?12:8))
             throw std::runtime_error("2D Home button did not route back");
     }
     return 0;

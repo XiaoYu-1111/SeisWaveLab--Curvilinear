@@ -1,0 +1,2 @@
+Elasticity -> GSLS 1/3 -> PML -> dry loess -> long tail -> model IO -> background publication. Default remains FP64.
+CUDA checked: 1

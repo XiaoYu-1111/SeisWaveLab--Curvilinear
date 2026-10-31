@@ -16,7 +16,8 @@ class RecordView {
   public:
     RecordSettings settings;
     WorkspaceTools* workspace{};
-    std::array<float, 4> optionsBounds{};
+    std::array<float, 4> optionsBounds{}, plotBounds{};
+    bool plotVisible{}; // Last rendered plot, for responsive-layout validation.
     void draw(const RecordDataView &, int &selectedReceiver, const char *window, bool *open = nullptr);
     void drawContent(const RecordDataView &, int &selectedReceiver);
     void invalidate() {

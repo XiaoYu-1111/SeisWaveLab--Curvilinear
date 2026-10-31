@@ -1,0 +1,16 @@
+logical_nx=5001
+logical_nz=2001
+compute_nx=5049
+compute_nz=2025
+precision=FP32
+Vp_min_m_s=500
+frequency_Hz=15
+steps=8
+dt_s=0.00049993554256605205
+initialization_ms=1790.0921000000001
+compute_ms=20.093399999999999
+resident_host_arrays_bytes=701136261
+resident_device_arrays_bytes=623679261
+RAM_budget_MiB=2496.156494140625
+peak_pressure_Pa=2.4299234895859653e-06
+Short capacity check only; not a complete production simulation or convergence test.

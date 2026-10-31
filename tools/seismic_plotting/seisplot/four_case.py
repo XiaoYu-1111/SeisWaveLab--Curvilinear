@@ -5,6 +5,7 @@ from scipy import signal,optimize
 from matplotlib import pyplot as plt
 from .publication import resolve_style,ordered_components,velocity_scale
 from .io import read_vts
+from .spectra import trace_amplitude_spectra
 from .core import (setup,save,load_cases,records,gain,axes_grid,gather_image,grid_data,
                    spatial,symlog,wave_colorbar,snapshot_rows,write_rows,PALETTE)
 
@@ -64,6 +65,20 @@ class FourCaseStudy:
                         fig.colorbar(im,ax=axs,location=opt.get('colorbar_location','bottom'),shrink=.8,aspect=70,pad=.06,label=f'{comp} / ({unit})'+('，显示增益，非原始振幅' if mode!='raw' else '，无AGC'))
                         fig.suptitle(f'{d["label"]}  {comp}  {mode}，共同显示限幅±{limit*scale:g}')
                         files+=save(fig,self.out,f'{d["label"]}_gathers_{comp}_{mode}',cfg)
+                        if opt.get('individual_panels',False):
+                            # Reuse the exact comparison scale and already computed display array.
+                            # A panel is a separate image, not a re-normalized observation.
+                            panel_cfg=dict(cfg)
+                            if cfg.get('journal_layout'):
+                                panel_cfg.pop('journal_options',None)
+                                panel_cfg['journal_layout']='ogp_single'
+                                panel_cfg=resolve_style(panel_cfg)
+                            for c,g,a in zip(d['cases'],gs,arrays):
+                                panel,ax=plt.subplots(figsize=(6.2,3.5),layout='constrained')
+                                img=gather_image(ax,g,a,c['case'].get('label',c['case']['id']),cfg,limit,mode=mode)
+                                panel.colorbar(img,ax=ax,location=opt.get('colorbar_location','bottom'),pad=.18,
+                                    label=f'{comp} / ({unit})'+('，显示增益，非原始振幅' if mode!='raw' else '，无AGC'))
+                                files+=save(panel,self.out,f'{d["label"]}_gathers_{comp}_{mode}_{c["case"]["id"]}',panel_cfg)
                         policies.append(dict(dataset=d['label'],component=comp,layout='component_matrices',mode=mode,limit=limit*scale,unit=unit))
             if 'component_pairs' in layouts:
                 if components[:2]!=['Vz','Vx']:raise ValueError('component_pairs requires both Vz and Vx')
@@ -80,6 +95,53 @@ class FourCaseStudy:
                     files+=save(fig,self.out,f'{d["label"]}_gathers_{group["id"]}_Vz_Vx_raw',cfg)
                     policies.append(dict(dataset=d['label'],component='Vz,Vx',layout='component_pairs',mode='raw',limit=limit,unit='m/s',group=group['id']))
         write_rows(self.out/'data/record_display_policy.csv',[{k:r.get(k,'') for k in ['dataset','component','layout','mode','limit','unit','group']} for r in policies])
+        return files
+
+    def plot_trace_spectra(self):
+        """Rainbow trace FFT amplitudes with a black arithmetic mean spectrum."""
+        from matplotlib.colors import to_hex
+        opt=self.cfg.get('trace_spectra',{});files=[];panels=[];policy=[]
+        # Legacy max_hz remains an explicit display override after profile merging.
+        max_hz=float(opt.get('max_hz',opt.get('display_max_hz',100)));window=opt.get('window','hann')
+        if not np.isfinite(max_hz) or max_hz<=0:raise ValueError('trace_spectra.display_max_hz must be positive')
+        for d in self.datasets:
+            comps=ordered_components(set.intersection(*(set(c['components']) for c in d['cases'])),['Vz','Vx'])
+            for comp in comps:
+                fig,axs=axes_grid(len(d['cases']),2,height=3.65)
+                for ax,c in zip(axs,d['cases']):
+                    g=self.get(d,c,comp);full_f,full_amplitude,full_mean=trace_amplitude_spectra(g.values,g.dt,window)
+                    use=full_f<=max_hz
+                    if use.sum()<2:raise ValueError('Spectrum display band contains fewer than two bins')
+                    f,amplitude,mean=full_f[use],full_amplitude[:,use],full_mean[use]
+                    colors=[to_hex(plt.get_cmap('plasma')(v)) for v in np.linspace(.03,.98,len(amplitude))]
+                    peak=float(amplitude.max());upper=max(peak*1.08,1e-15)
+                    magnitude=10**np.floor(np.log10(upper));step=magnitude/2
+                    upper=float(np.ceil(upper/step)*step)
+                    for curve,color in zip(amplitude,colors):ax.plot(f,curve,color=color,lw=.5,alpha=.75)
+                    ax.plot(f,mean,color='#263430',lw=2,label='平均频谱')
+                    ax.set(xlabel='频率 / Hz',ylabel='振幅 / (m/s)',title=c['case'].get('label',c['case']['id']),
+                           xlim=(0,max_hz),ylim=(0,upper),facecolor='#fdfaf4')
+                    ax.ticklabel_format(axis='y',style='sci',scilimits=(0,0),useMathText=True)
+                    ax.grid(alpha=.17);ax.legend(fontsize=11,loc='upper right')
+                    stem=f'{d["label"]}_{c["case"]["id"]}_{comp}'
+                    write_rows(self.out/'data'/f'{stem}_trace_spectra.csv',[
+                        dict(frequency_hz=float(ff),mean_amplitude_m_s=float(full_mean[j]),
+                             **{f'trace_{i+1:03d}_amplitude_m_s':float(full_amplitude[i,j]) for i in range(len(full_amplitude))})
+                        for j,ff in enumerate(full_f)])
+                    write_rows(self.out/'data'/f'{stem}_trace_geometry.csv',[
+                        dict(trace=i+1,x_m=float(g.x[i]),offset_m=float(g.offset[i])) for i in range(len(amplitude))])
+                    row=dict(dataset=d['label'],case=c['case']['id'],component=comp,traces=len(amplitude),samples=g.values.shape[1],
+                        dt_s=g.dt,window=window,detrend='whole-trace mean',normalization='one-sided FFT amplitude / window sum',
+                        frequency_step_hz=float(full_f[1]-full_f[0]),display_max_hz=max_hz,data_max_hz=float(full_f[-1]),input_file=str(c['components'][comp]),
+                        excluded_traces=0,mean='arithmetic mean of linear trace amplitudes',y_scale='linear, independently fitted per model')
+                    policy.append(row)
+                    panels.append(dict(**row,label=c['case'].get('label',c['case']['id']),frequency_hz=f.tolist(),
+                        trace_amplitude_m_s=amplitude.tolist(),mean_amplitude_m_s=mean.tolist(),trace_colors=colors,ylim=[0,upper]))
+                fig.suptitle(f'{d["label"]}  {comp}  多道振幅频谱与平均谱',fontsize=self.cfg.get('title_size',16))
+                fig.supxlabel('彩色：各道振幅谱；黑色：平均频谱。原始全时窗，无AGC或逐道归一化；各模型纵轴按实际幅度适配',fontsize=11)
+                files+=save(fig,self.out,f'{d["label"]}_trace_spectra_{comp}',self.cfg)
+        write_rows(self.out/'data/trace_spectra_policy.csv',policy)
+        (self.out/'data/trace_spectra_panels.json').write_text(json.dumps(panels,ensure_ascii=False),encoding='utf-8')
         return files
 
     def plot_models(self,shallow=False):

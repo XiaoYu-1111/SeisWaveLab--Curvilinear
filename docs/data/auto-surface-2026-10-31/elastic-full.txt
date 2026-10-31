@@ -1,0 +1,7 @@
+2D mode isolation PASS: separate elastic/viscoelastic drafts; no foreign rebuild
+2D workspace PASS: CPU/CUDA session, failed rebuild, VTS/CSV, 6 layouts, bilingual themes, raw records retained
+2D UI PASS: edited 45 Hz by keyboard, bottom reset recomputed dt, N/C, live/imported SEG-Y, automatic apply on Run, horizontal F1, fonts 18..26
+2D model UI PASS: five-layer preset popup, external CSV terrain, datum, geometry / dt rebuild
+2D large model UI PASS: 1200x1100, full simulation / adaptive view stride
+2D terrain presets UI PASS: all eight presets adapt from original data to 1/2/4 km
+2D source / examples UI PASS: actual mechanism combo and rebuild, explosion propagation, all deployed elevation files

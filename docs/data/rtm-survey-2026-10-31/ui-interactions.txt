@@ -1,0 +1,1 @@
+PASS: actual Nx edit / automatic surface receiver realignment / persistent footer rebuild after completed RTM / toolbar rebuild / applied terrain coordinates / manual start-count-stride-depth / failed rebuild preserves model and image / undo / second RTM run / single-receiver rerun and plot limits / defaults / exact model acquisition overlays

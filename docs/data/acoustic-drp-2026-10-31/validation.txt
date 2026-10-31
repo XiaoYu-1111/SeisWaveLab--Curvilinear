@@ -1,0 +1,10 @@
+curved_variable_density_energy_residual=3.8007237124542e-20
+selective_filter_energy_work=-1.3359262769765e-07
+clipped_binomial_source_integral=1
+DRP_modal_errors=3.2646303543158e-05,2.0928966804596e-06,1.3151091316146e-07 ratios=15.598621684463,15.914243389749
+normal_reflection_expected=0.29411764705882 measured=0.2916079879963
+target_residual_energy damping=0 relief=0 t=1.5 ratio=0.72575951401441 top_p=0
+target_residual_energy damping=1 relief=0 t=1.500409517735 ratio=9.6029450545438e-06 top_p=0
+target_residual_energy damping=1 relief=20 t=1.500630071029 ratio=9.3968508339085e-06 top_p=0
+integration schema4 rollback reset CPU_GPU_L2=0 FP32_FP64_L2=8.8601655605988e-07
+PASS: DRP independent forward; energy, analytic refinement, impedance, free surface, CPML, precision, CUDA, schema4; RTM unchanged

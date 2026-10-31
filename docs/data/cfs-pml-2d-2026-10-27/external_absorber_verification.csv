@@ -1,0 +1,5 @@
+absorber,GSLS,model_nx,model_nz,compute_nx,compute_nz,offset_x,receiver_first_x_m,receiver_last_x_m,cuda_checked
+0,0,80,72,112,88,16,0,158,1
+0,1,80,72,112,88,16,0,158,1
+1,0,80,72,112,88,16,0,158,1
+1,1,80,72,112,88,16,0,158,1

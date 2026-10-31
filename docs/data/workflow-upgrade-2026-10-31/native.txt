@@ -1,0 +1,5 @@
+PASS: uniform surface survey; elastic row0/acoustic row1; internal absorber exclusion; count limit / single receiver
+PASS: budget/FP32/FP64/free-VRAM capacity estimates; aspect suggestions within budget
+PASS: raw-pressure SEG-Y IEEE32/IEEE64 roundtrip, Pa, coordinates, dt and samples
+PASS: bounded RTM previews across all phases; results bitwise unchanged; cancellation transactional
+PASS: CUDA process previews finite; image/illumination/records bitwise unchanged

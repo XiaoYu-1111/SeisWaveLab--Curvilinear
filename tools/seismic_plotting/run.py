@@ -13,7 +13,7 @@ def run(kind,config,steps=None):
     classes={'four':FourCaseStudy,'masw':SurfaceWaveStudy,'inversion':InversionStudy}
     study=classes[kind](config)
     methods={
-      'four':{'inspect':'inspect','terrain':'plot_terrain_profile','records':'plot_records','models':'plot_models','wavefields':'plot_wavefields','metrics':'plot_metrics','frequencies':'plot_frequency_compare','reflections':'plot_reflections'},
+      'four':{'inspect':'inspect','terrain':'plot_terrain_profile','records':'plot_records','spectra':'plot_trace_spectra','models':'plot_models','wavefields':'plot_wavefields','metrics':'plot_metrics','frequencies':'plot_frequency_compare','reflections':'plot_reflections'},
       'masw':{'inspect':'inspect','records':'plot_records','models':'plot_models','wavefields':'plot_wavefields','differences':'plot_record_differences','traces':'plot_trace_overlay','dispersion':'plot_dispersion','windows':'plot_offset_windows','picks':'plot_phase_curves'},
       'inversion':{'models':'plot_models','fit':'plot_curve_fit','multistart':'plot_multistart','thickness':'plot_thickness_scan','sensitivity':'plot_sensitivity'}}[kind]
     for step in steps or list(methods):

@@ -5,7 +5,7 @@ from scipy.ndimage import uniform_filter1d
 from matplotlib import pyplot as plt, font_manager
 from matplotlib.colors import SymLogNorm
 from .io import metadata,read_segy,read_vts,table
-from .publication import resolve_style,velocity_scale,reference_lines
+from .publication import resolve_style,velocity_scale,reference_lines,prepare_journal_figure
 
 REPO=Path(__file__).resolve().parents[3]
 WORKSPACE=REPO.parent
@@ -27,24 +27,28 @@ def setup(cfg):
         for case in dataset['cases']:inputs.append(resolve(case.get('folder','.'),resolve(dataset['root'])))
     if any(root.is_relative_to(p) for p in inputs):raise ValueError('output_dir must not be inside an input case/inversion directory')
     for p in ['figures','data','cache']: (root/p).mkdir(parents=True,exist_ok=True)
-    requested=cfg.get('font_family',['Times New Roman','Microsoft YaHei']);requested=[requested] if isinstance(requested,str) else requested
+    requested=(['Times New Roman','SimSun'] if cfg.get('journal_layout') else cfg.get('font_family',['Times New Roman','Microsoft YaHei']));requested=[requested] if isinstance(requested,str) else requested
     family=[f for f in requested if f in {v.name for v in font_manager.fontManager.ttflist}]
     if not family:
         candidates=['Noto Sans CJK SC','SimHei','DejaVu Sans']
         family=[next((x for x in candidates if x in {f.name for f in font_manager.fontManager.ttflist}),'DejaVu Sans')]
         warnings.warn(f'Requested font unavailable; using {family}')
-    plt.rcParams.update({'font.family':family,'font.size':cfg.get('font_size',14),'axes.titlesize':cfg.get('title_size',16),'axes.unicode_minus':False,
+    journal=cfg.get('journal_options',{}) if cfg.get('journal_layout') else {}
+    plt.rcParams.update({'font.family':family,'font.size':journal.get('font_size_pt',cfg.get('font_size',14)),'axes.titlesize':journal.get('font_size_pt',cfg.get('title_size',16)),'axes.unicode_minus':False,
                          'axes.linewidth':cfg.get('axes_linewidth',.6),'axes.spines.top':True,'axes.spines.right':True,
-                         'xtick.direction':'in','ytick.direction':'in','savefig.facecolor':'white'})
+                         'xtick.direction':'in','ytick.direction':'in','savefig.facecolor':'white','pdf.fonttype':42,'ps.fonttype':42,'svg.fonttype':'none'})
     (root/'data/config_used.json').write_text(json.dumps(cfg,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
     return root
 
 def save(fig,out,name,cfg):
     name=''.join(c if c.isalnum() or c in '_-.' else '_' for c in name)
+    journal=prepare_journal_figure(fig,cfg)
     files=[]
     for ext in cfg.get('formats',['png','pdf']):
         if ext not in ['png','pdf','svg']:raise ValueError('formats: use png/pdf/svg')
-        p=Path(out)/'figures'/f'{name}.{ext}';fig.savefig(p,dpi=cfg.get('dpi',180),bbox_inches='tight');files.append(p)
+        p=Path(out)/'figures'/f'{name}.{ext}'
+        dpi=cfg['journal_options']['dpi'] if journal else cfg.get('dpi',180)
+        fig.savefig(p,dpi=dpi,bbox_inches=None if journal else 'tight');files.append(p)
     plt.close(fig);return files
 
 def write_rows(path,rows):

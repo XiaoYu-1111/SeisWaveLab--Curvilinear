@@ -1,0 +1,1 @@
+PASS: deep-copy mailboxes / one-shot destination / explicit-only transfer / independent acoustic states / independent elastic state / immutable RTM result

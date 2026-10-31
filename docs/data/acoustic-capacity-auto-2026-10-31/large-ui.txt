@@ -1,0 +1,1 @@
+Acoustic automatic-capacity GUI PASS: CUDA FP32 5000x2000; eight finite steps

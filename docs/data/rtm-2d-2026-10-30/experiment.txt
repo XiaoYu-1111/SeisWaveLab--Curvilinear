@@ -1,0 +1,30 @@
+Acoustic variable-density pressure RTM; P1 FEM/lumped mass; discrete adjoint; external damped strips; zero-pressure top; zero-lag correlation
+Device: CPU / OpenMP (4 workers) / FP64
+precision=FP64
+nx=121
+nz=81
+h_m=5
+frequency_Hz=15
+requested_duration_s=0.59999999999999998
+steps=553
+dt_s=0.0010868163968827218
+shots=3
+first_shot_index=35
+last_shot_index=85
+shot_depth_index=2
+receiver_depth_index=2
+receiver_stride=2
+external_absorber_cells=24
+smooth_iterations=80
+background_constant_vp=1800
+illumination_floor=0.0050000000000000001
+checkpoint_interval=34
+estimated_peak_RAM_MiB=24.298553466796875
+wall_seconds=0.30280659999999998
+min_peak_P_ppw=24
+source=unit pressure increment Ricker at t=n*dt, delay=1.5/f; samples after step
+source model coordinates and density in model.csv; z positive down
+Vs and Q ignored/not inverted; GSLS rejected. Acoustic pressure is not Vz/Vx.
+Sponge strips are NOT the elastic CFS-PML. Source illumination is not a Hessian diagonal.
+Images have arbitrary scale; illumination-normalized output is not calibrated reflectivity.
+Only the final shot pressure residual is exported; all shot images are summed.

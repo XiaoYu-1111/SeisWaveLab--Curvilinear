@@ -1,0 +1,1 @@
+PASS: elastic/GSLS external wavefield rendered; full-domain fit; target-only scale unchanged by B; original amber hue at 14% opacity; tint does not modify physical data

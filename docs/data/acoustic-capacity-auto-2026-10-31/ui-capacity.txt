@@ -1,0 +1,11 @@
+PASS: real Workspace apply rebuilt CPU small -> CUDA FP32 5000x2000 with automatic RAM; eight finite steps
+free_ram_before_MiB=7185.5546875
+free_vram_before_MiB=7042.08984375
+RAM_estimate_MiB=2614.5574340820312
+auto_RAM_budget_MiB=4954.892578125
+compute_nx=5048
+compute_nz=2024
+resident_host_bytes=751302468
+resident_device_bytes=686129652
+peak_pressure_Pa=2.4299234895859653e-06
+Short capacity/UI verification; not a full-duration accuracy or performance benchmark.

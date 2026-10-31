@@ -1,0 +1,121 @@
+{
+  "date": "2026-10-29",
+  "sizes": [
+    256,
+    1024,
+    1536,
+    2048
+  ],
+  "repeats": 5,
+  "cpu_threads": 32,
+  "warmup_timed_steps": {
+    "256": [
+      10,
+      100
+    ],
+    "1024": [
+      5,
+      40
+    ],
+    "1536": [
+      3,
+      20
+    ],
+    "2048": [
+      3,
+      20
+    ]
+  },
+  "preheat_ms": 1000,
+  "telemetry_interval_s": 0.1,
+  "executable_sha256": "7ac22409f5c96501504272550ebce706db286256c5118013ce72e36bffd1f950",
+  "benchmark_source_sha256": "773a6ace47a479a813a1af3cb571d0736922f36f49e45ad473dea2da530a4efb",
+  "started_epoch": 1793231944.827191,
+  "status": "complete",
+  "trial_count": 160,
+  "success_count": 155,
+  "resource_rejected_count": 5,
+  "finished_epoch": 1793232619.2297475,
+  "telemetry_errors": [],
+  "power_control": {
+    "before_plan": {
+      "command": [
+        "powercfg",
+        "/getactivescheme"
+      ],
+      "returncode": 0,
+      "stdout": "鐢垫簮鏂规 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (骞宠　)",
+      "stderr": ""
+    },
+    "before_limits": {
+      "min_w": 5.0,
+      "max_w": 140.0,
+      "enforced_w": 125.0
+    },
+    "set_high_performance": {
+      "command": [
+        "powercfg",
+        "/setactive",
+        "SCHEME_MIN"
+      ],
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "浣犳病鏈夋墽琛屾鎿嶄綔鎵€闇€鐨勬潈闄愩€�\r\n"
+    },
+    "during_plan": {
+      "command": [
+        "powercfg",
+        "/getactivescheme"
+      ],
+      "returncode": 0,
+      "stdout": "鐢垫簮鏂规 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (骞宠　)",
+      "stderr": ""
+    },
+    "request_max_gpu_power": {
+      "command": [
+        "nvidia-smi",
+        "-i",
+        "0",
+        "-pl",
+        "140.0"
+      ],
+      "returncode": 0,
+      "stdout": "Changing power management limit is not supported in current scope for GPU: 00000000:01:00.0.\r\nAll done.\r\n",
+      "stderr": ""
+    },
+    "verified_limits": {
+      "min_w": 5.0,
+      "max_w": 140.0,
+      "enforced_w": 125.0
+    },
+    "after_limits": {
+      "min_w": 5.0,
+      "max_w": 140.0,
+      "enforced_w": 125.0
+    },
+    "restore_plan": {
+      "command": [
+        "powercfg",
+        "/setactive",
+        "381b4222-f694-41f0-9685-ff5bb260df2e"
+      ],
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "浣犳病鏈夋墽琛屾鎿嶄綔鎵€闇€鐨勬潈闄愩€�\r\n"
+    },
+    "after_plan": {
+      "command": [
+        "powercfg",
+        "/getactivescheme"
+      ],
+      "returncode": 0,
+      "stdout": "鐢垫簮鏂规 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (骞宠　)",
+      "stderr": ""
+    }
+  },
+  "vendor_mode_user_confirmation": {
+    "user_confirmation": "已开启，按当前状态测试",
+    "scope": "厂商性能模式／GPU高性能模式",
+    "recorded_at": "2026-10-29T08:05:31.789392+08:00"
+  }
+}

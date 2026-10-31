@@ -9,6 +9,7 @@
 | `CMakeLists.txt`、`CMakePresets.json`、`CMakeSettings.json`、`cmake` | 独立构建入口和外部输出布局 |
 | `src`、`include` | CPU/CUDA、界面、I/O 与验证代码 |
 | `src/common`、`src/two_d`、`src/three_d` | 共享基础服务、独立二维与三维实现；各维度含自己的 ui |
+| `src/two_d/acoustic`、`src/two_d/imaging`、`src/two_d/ui/acoustic`、`src/two_d/ui/imaging` | 声学核心、RTM任务与各自界面；原弹性核心保留原目录 |
 | `resources/icons`、`resources/AppIcon.rc.in`、`shaders` | 应用原始资源 |
 | `resources/icons/regular` | 规则网格图标原图及多尺寸 ICO，保留设计资产供 Git 同步 |
 | `docs`、`docs/images` | 学术说明、操作说明和发表图片 |

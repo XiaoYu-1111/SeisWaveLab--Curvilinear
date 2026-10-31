@@ -1,0 +1,31 @@
+{
+  "status": "PASS",
+  "files": [
+    "external_wavefield_0_0.vts",
+    "external_wavefield_0_1.vts",
+    "external_wavefield_1_0.vts",
+    "external_wavefield_1_1.vts",
+    "external_model_0_0.vts",
+    "external_model_0_1.vts",
+    "external_model_1_0.vts",
+    "external_model_1_1.vts"
+  ],
+  "target_points": [
+    80,
+    72
+  ],
+  "actual_compute_points": [
+    112,
+    88
+  ],
+  "target_x_m": [
+    0,
+    158
+  ],
+  "target_z_m": [
+    0,
+    142
+  ],
+  "all_point_arrays_target_size": true,
+  "exported_external_mode_metadata": true
+}

@@ -1,0 +1,8 @@
+Internal ctest changing into directory: D:/Code/visual_code/Cmake_project/CMake_pro_CUDA/SeisWaveLab_Curvilinear_Workspace/out/build/x64-Release
+Test project D:/Code/visual_code/Cmake_project/CMake_pro_CUDA/SeisWaveLab_Curvilinear_Workspace/out/build/x64-Release
+    Start 3: curvilinear_2d_acoustic_cpml
+1/1 Test #3: curvilinear_2d_acoustic_cpml .....   Passed    2.19 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   2.20 sec

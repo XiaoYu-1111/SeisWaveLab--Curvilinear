@@ -1,0 +1,9 @@
+Home route PASS: 1
+2D Home route PASS
+Home route PASS: 2
+3D Home route PASS
+Home route PASS: 3
+Router PASS: Home -> 2D -> Home -> 3D -> Home
+Router PASS: grouped acoustic navigation; normal navigation does not copy models
+Home route PASS: 4
+Router PASS: Home -> Acoustic forward
