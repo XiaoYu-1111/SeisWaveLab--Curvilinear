@@ -196,8 +196,8 @@ bool Simulation::initialize(const Parameters &requested, std::string &error, Bac
                 p.nx >= 11 && p.nz >= 11 && sx >= 5 && sx <= p.nx - 6 && p.sourceZ >= 5 &&
                     p.sourceZ <= p.nz - 6,
                 "Isotropic moment needs 11+ nodes per axis and source center five nodes inside each face.");
-        require(p.sourceX >= -1 && sx >= 2 && sx <= p.nx - 3 && p.sourceZ >= 2 && p.sourceZ <= p.nz - 3,
-                "2D source must stay at least two cells inside the domain.");
+        require(p.sourceX >= -1 && sx >= 2 && sx <= p.nx - 3 && p.sourceZ >= 0 && p.sourceZ <= p.nz - 3,
+                "2D force source may be on the free surface; keep two cells from the sides and bottom.");
         require(p.receiverStart >= 0 && p.receiverCount > 0 && p.receiverCount <= 1024 &&
                     p.receiverStride > 0 && p.receiverDepth >= 0 && p.receiverDepth < p.nz &&
                     static_cast<long long>(p.receiverStart) +
@@ -431,6 +431,9 @@ bool Simulation::initialize(const Parameters &requested, std::string &error, Bac
         } else {
         for (int dk = -2; dk <= 2; ++dk)
             for (int di = -2; di <= 2; ++di) {
+                // Surface-centered directional forces use only physical nodes;
+                // re-normalize the truncated kernel, never inject into ghosts.
+                if(p.sourceZ+dk<0)continue;
                 const auto q = g.index(sx + ghost + di, p.sourceZ + ghost + dk);
                 s.source.set(q,std::exp(-.5 * (di * di + dk * dk)));
                 weight += s.source[q] * g.jacobian[q];
@@ -455,7 +458,7 @@ bool Simulation::initialize(const Parameters &requested, std::string &error, Bac
                 }
         }
         auto &d = s.diagnostics;
-        if(p.sourceSigmaM>0){const auto center=g.coordinates[g.index(sx+ghost,p.sourceZ+ghost)];double second=0;
+        if(p.sourceSigmaM>0||p.sourceZ<2){const auto center=g.coordinates[g.index(sx+ghost,p.sourceZ+ghost)];double second=0;
             for(std::size_t q=0;q<count;++q)if(s.source[q]>0){const auto r=g.coordinates[q];const double w=s.source[q]*g.jacobian[q];d.sourceWeightSum+=w;second+=w*((r[0]-center[0])*(r[0]-center[0])+(r[1]-center[1])*(r[1]-center[1]));}
             d.sourceRmsRadiusM=std::sqrt(second/d.sourceWeightSum);}
         d.ppw = minVs / (2.5 * p.frequency * g.maxEdge);

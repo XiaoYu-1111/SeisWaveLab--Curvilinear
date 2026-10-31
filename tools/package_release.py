@@ -14,6 +14,7 @@ import subprocess
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from project_version import project_version
 
 REPO = Path(__file__).resolve().parents[1]
 OUT = REPO.parent / 'out'
@@ -70,6 +71,12 @@ def manifests(folder: Path) -> None:
     ], ensure_ascii=False, indent=2))
 
 def stage(args, root: Path, version: str) -> None:
+    runtime_versions={}
+    for executable in [PRODUCT,'SeisWaveLab_MASW']:
+        actual=subprocess.check_output([str(OUT/'bin/Release'/(executable+'.exe')),'--version'],text=True).strip()
+        if actual!=f'{executable} v{version}':
+            raise RuntimeError(f'Rebuild required: VERSION={version}, executable reports {actual}')
+        runtime_versions[executable]=actual
     root.mkdir(parents=True, exist_ok=False)
     portable = root/f'{PRODUCT}-v{version}-Windows-x64-Portable'
     source = root/f'{PRODUCT}-v{version}-Source'
@@ -159,15 +166,17 @@ BUILD_INFO.json 标识本次基准提交和工作区快照；FILE_MANIFEST.json 
     source_fingerprint = hashlib.sha256('\n'.join(f'{name} {sha(REPO/name)}' for name in files).encode('utf-8')).hexdigest()
     info = {
         'product': PRODUCT, 'version': version,
+        'version_source': 'VERSION', 'runtime_versions': runtime_versions,
         'created_at': datetime.now(timezone(timedelta(hours=8))).isoformat(),
         'base_git_commit': git('rev-parse', 'HEAD'),
         'git_working_tree_modified': bool(git('status', '--porcelain')),
         'source_tree_sha256': source_fingerprint, 'source_file_count': len(files),
-        'configuration': 'Release', 'platform': 'Windows x64', 'precision': 'Float64',
+        'configuration': 'Release', 'platform': 'Windows x64',
+        'precision': '2D selectable Float32/Float64; acoustic default Float32; elastic and 3D default Float64',
         'cuda_toolkit': '12.8', 'cuda_architectures': '75-real;86-real;89-real;120-real;75-virtual',
         'main_exe_sha256': sha(binary/f'{PRODUCT}.exe'),
         'runtime_output': 'portable.flag => executable directory/userdata',
-        'note': 'Working-tree source snapshot includes release portability changes; commit/tag that tree before creating the public Release.',
+        'note': 'Exact source inventory and hashes are recorded; public releases must use the clean tagged commit.',
     }
     for folder in [portable, source]:
         write(folder/'BUILD_INFO.json', json.dumps(info, ensure_ascii=False, indent=2))
@@ -218,7 +227,7 @@ def main() -> None:
     args=p.parse_args();root=args.output.resolve()
     if not root.is_relative_to(OUT.resolve()) or root==OUT.resolve():
         p.error('Release output must be a new subdirectory inside this workspace out.')
-    version=re.search(r'project\(\s*SeisWaveLab_Curvilinear\s+VERSION\s+([\d.]+)',(REPO/'CMakeLists.txt').read_text(encoding='utf-8-sig')).group(1)
+    version=project_version()
     if args.finalize:finalize(root)
     else:
         if not all([args.glfw_root,args.glew_root,args.vc_redist_root,args.cuda_root]):p.error('Stage requires all four SDK/runtime roots.')

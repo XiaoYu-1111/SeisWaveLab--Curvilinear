@@ -2,12 +2,15 @@
 #include "AbsorberDisplay2D.hpp"
 #include "AppRuntime.hpp"
 #include "CommandStrip2D.hpp"
+#include "GridDisplay2D.hpp"
+#include "InitialModel2D.hpp"
 #include "MenuWidgets.hpp"
 #include "ModelEditor2D.hpp"
 #include "ModuleNavigation2D.hpp"
 #include "Presentation3D.hpp"
 #include "RecordPalettes3D.hpp"
 #include "RecordView.hpp"
+#include "ScalarLegendStrip.hpp"
 #include "Seis2D/AcousticSolver2D.hpp"
 #include "Seis2D/ModelIo2D.hpp"
 #include "Seis2D/SurfaceSurvey2D.hpp"
@@ -88,12 +91,12 @@ struct Workspace {
     double displayedPressurePeak{};
     ImVec2 sourcePixel{}, lastPlotSize{};
     double aspectError{}, modelMinimum{}, modelMaximum{1};
-    int modelPalette{7}, gridStride{1};
+    int modelPalette{1}, gridStride{1};
     double gridCellAspectError{};
     int groupEpoch{};
     bool groupsExpanded{true};
     std::unordered_map<ImGuiID, int> groupApplied;
-    int backend{}, precision{}, palette{}, fieldMode{2}, selectedReceiver{};
+    int backend{}, precision{}, palette{1}, fieldMode{2}, selectedReceiver{};
     SeisWave::Ui::RecordView recordView;
     std::vector<std::vector<double>> recordSamples;
     std::size_t publishedSamples{};
@@ -220,8 +223,10 @@ struct Workspace {
         }
     }
     Workspace() {
-        if (!acousticDraft)
+        if (!acousticDraft) {
+            SeisWave::Ui::applyInitialModel2D(options.model, true);
             options.model.autoSurfaceReceivers = true;
+        }
         modelEditor.browseTerrain = [this] { browse(surfacePath, true); };
         modelEditor.fitAcquisition = [](Parameters &p) {
             p.sourceX = p.sourceX < 0 ? -1 : std::clamp(p.sourceX, 1, std::max(1, p.nx - 2));
@@ -515,6 +520,8 @@ struct Workspace {
     }
     void defaults() {
         options = defaultOptions();
+        palette = modelPalette = 1;
+        SeisWave::Ui::applyInitialModel2D(options.model, true);
         options.model.autoSurfaceReceivers = true;
         syncSurfaceReceivers();
         modelEditor.terrainPreset = -1;
@@ -759,7 +766,11 @@ struct Workspace {
                 l("Pressure only\0Vp model only\0Model + wavefield\0", "压力波场\0Vp 模型\0模型＋波场\0"));
             if (ImGui::Checkbox(l("Equal X/Z scale", "X/Z 等比例坐标"), &equalAspect))
                 fit = true;
+            SeisWave::Ui::runtimeDisplayOptions();
             ImGui::Checkbox(l("Grid [G]", "网格 [G]"), &gridLines);
+            ImGui::TextDisabled("%s %.3g m", l("Grid line spacing (auto):", "网格线间隔（自动）："),
+                                gridStride * (simulation.initialized() ? simulation.options().model.spacing
+                                                                       : options.model.spacing));
             if (ImGui::Checkbox(l("Absorber wavefield [B]", "吸收区波场 [B]"), &absorberOverlay))
                 fit = true;
             if (absorberOverlay) {
@@ -846,16 +857,16 @@ struct Workspace {
         const auto &active = simulation.options();
         const auto &p = active.model;
         const auto size = ImGui::GetContentRegionAvail();
-        const bool compactLegend = size.x < 800;
-        const float height = std::max(
-            80.f,
-            size.y - (fieldMode == 2 && !compactLegend ? 3 : 2) * ImGui::GetTextLineHeightWithSpacing() - 8);
+        const bool showModel = fieldMode != 0, showWave = fieldMode != 1;
+        const int legendCount = int(showModel) + int(showWave);
+        const float height =
+            std::max(80.f, size.y - SeisWave::Ui::scalarLegendHeight(legendCount, size.x) -
+                               ImGui::GetTextLineHeightWithSpacing() - 2 * ImGui::GetStyle().ItemSpacing.y);
         const bool compactScale = height < 160;
-        const ImVec2 plotSize{std::max(120.f, size.x - (compactScale ? 0 : 96)), height};
+        const ImVec2 plotSize{std::max(120.f, size.x), height};
         if (plotSize.x != lastPlotSize.x || plotSize.y != lastPlotSize.y)
             fitted[0] = false;
         lastPlotSize = plotSize;
-        const bool showModel = fieldMode != 0, showWave = fieldMode != 1;
         const double modelLow = modelMinimum, modelHigh = modelMaximum;
         const int padding = active.absorberCells;
         const auto frameIndex = [&](int x, int z) { return std::size_t(z) * g.computeNx + (x + padding); };
@@ -868,7 +879,6 @@ struct Workspace {
         high *= clip;
         displayedPressurePeak = high;
         renderedAbsorberCells = 0;
-        const double low = showWave ? -high : modelLow;
         if (!showWave)
             high = modelHigh;
         const bool external = absorberOverlay && active.damping;
@@ -1002,8 +1012,7 @@ struct Workspace {
                 // The same logical stride in X and eta preserves square cells in the flat domain.
                 // Plot viewport width includes equal-aspect margins and cannot determine X stride.
                 const double pixelsPerCell = std::min(std::abs(px.x - origin.x), std::abs(pz.y - origin.y));
-                gridStride = std::clamp(static_cast<int>(std::ceil(12 / std::max(.001, pixelsPerCell))), 1,
-                                        std::min(g.nx - 1, g.nz - 1));
+                gridStride = SeisWave::Ui::displayGridStride2D(g.nx, g.nz, p.spacing, pixelsPerCell);
                 const int gx = gridStride, gz = gridStride;
                 const auto start = toPixel(0, 0), horizontal = toPixel(gx, 0), vertical = toPixel(0, gz);
                 gridCellAspectError =
@@ -1065,71 +1074,22 @@ struct Workspace {
         }
         ImGui::PopFont();
         ImPlot::PopStyleVar();
-        if (!compactScale) {
-            ImGui::SameLine();
-            ImGui::PushFont(nullptr, std::min(16.f, ImGui::GetFontSize()));
-            ImPlot::ColormapScale("##acousticScale", low, high, {80, height}, showWave ? "%.1e" : "%.0f", 0,
-                                  colors);
-            ImGui::PopFont();
-        }
         ImPlot::PopColormap();
-        ImGui::PushFont(nullptr, std::min(16.f, ImGui::GetFontSize()));
-        if (compactScale) {
-            ImGui::Text("%.0fx%.0f m | %s | S / R%d", xmax, zmax - zmin, equalAspect ? "X/Z 1:1" : "X/Z",
-                        markerReceivers);
-            const auto legend = [&](ImPlotColormap palette, const char *text) {
-                const auto at = ImGui::GetCursorScreenPos();
-                for (int k = 0; k < 48; ++k)
-                    ImGui::GetWindowDrawList()->AddRectFilled(
-                        {at.x + 64 * k / 48, at.y + 5}, {at.x + 64 * (k + 1) / 48, at.y + 11},
-                        ImGui::ColorConvertFloat4ToU32(ImPlot::SampleColormap(k / 47.f, palette)));
-                ImGui::Dummy({64, 16});
-                ImGui::SameLine();
-                ImGui::TextUnformatted(text);
-            };
-            char label[96];
-            if (showWave) {
-                std::snprintf(label, sizeof(label), "p +/-%.2g Pa", high);
-                legend(colors, label);
-            }
-            if (showModel) {
-                if (showWave)
-                    ImGui::SameLine();
-                std::snprintf(label, sizeof(label), "Vp %.0f..%.0f m/s", modelLow, modelHigh);
-                legend(materialColors, label);
-            }
-            ImGui::PopFont();
-            ImGui::End();
-            return;
-        }
-        ImGui::Text("%s | %.0f x %.0f m | %s", showWave ? "Acoustic p (Pa)" : "Vp (m/s)", xmax, zmax - zmin,
-                    equalAspect ? "X/Z 1:1" : l("Free aspect", "自由比例"));
-        if (showModel && showWave) {
-            const auto at = ImGui::GetCursorScreenPos();
-            const float width = std::min(180.f, ImGui::GetContentRegionAvail().x * .3f);
-            for (int k = 0; k < 64; ++k)
-                ImGui::GetWindowDrawList()->AddRectFilled(
-                    {at.x + width * k / 64, at.y}, {at.x + width * (k + 1) / 64, at.y + 6},
-                    ImGui::ColorConvertFloat4ToU32(ImPlot::SampleColormap(k / 63.f, materialColors)));
-            ImGui::Dummy({width, 8});
-            ImGui::SameLine();
-            ImGui::Text("Vp %.0f..%.0f m/s", modelLow, modelHigh);
-        }
-        if (compactLegend && showModel && showWave)
-            ImGui::SameLine();
-        ImGui::TextColored({.8f, .36f, .05f, 1}, "%s",
-                           compactLegend ? l("S", "源") : l("Orange: source", "橙色：震源"));
-        ImGui::SameLine();
-        ImGui::TextColored({.08f, .5f, .4f, 1}, "%s %d",
-                           compactLegend ? l("R", "检波") : l("Green: receivers", "绿色：检波点"),
-                           markerReceivers);
-        if (external) {
-            ImGui::SameLine();
-            ImGui::TextUnformatted(compactLegend ? l("B: same pressure scale", "B：共用压力色标")
-                                                 : l("Amber tint: absorber | same pressure scale",
-                                                     "浅橙：吸收区；内外共用压力色标"));
-        }
-        ImGui::PopFont();
+        std::vector<SeisWave::Ui::ScalarLegend> legends;
+        if (showWave)
+            legends.push_back({"p (Pa)", -high, high, [colors](double t) {
+                                   return ImGui::ColorConvertFloat4ToU32(
+                                       ImPlot::SampleColormap(static_cast<float>(t), colors));
+                               }});
+        if (showModel)
+            legends.push_back({"Vp (m/s)", modelLow, modelHigh, [materialColors](double t) {
+                                   return ImGui::ColorConvertFloat4ToU32(
+                                       ImPlot::SampleColormap(static_cast<float>(t), materialColors));
+                               }});
+        SeisWave::Ui::drawScalarLegendStrip("##AcousticFieldLegends", legends);
+        ImGui::TextDisabled("%s %d | %s | X/Z %s", l("S: source; R:", "S：震源；R：检波点"), markerReceivers,
+                            external ? l("Amber: absorber", "浅橙：吸收区") : "p (Pa)",
+                            equalAspect ? "1:1" : l("free", "自由"));
         ImGui::End();
     }
     SeisWave::RecordDataView displayedRecords() const {
@@ -1185,34 +1145,45 @@ struct Workspace {
     void dock() {
         if (!help)
             chrome.views.beginFrame();
-        if (ImGui::BeginMainMenuBar()) {
+        if (SeisWave::Ui::beginWorkbenchMenuBar()) {
             if (ImGui::Button(l("Home", "主页")))
                 home = true;
             navigation.draw(options.model, options.compute, static_cast<BackendKind3D>(backend), error);
-            if (SeisWave::Ui::beginDropdownMenu(l("Workspace", "工作区"))) {
-                bool previous = chrome.floating;
-                chrome.panelMenu();
-                if (previous != chrome.floating)
-                    layout = true;
-                ImGui::MenuItem(l("Active parameters", "当前模拟参数"), nullptr, &showSummary);
-                if (ImGui::MenuItem(l("Restore layout", "恢复布局"))) {
-                    restoreLayout();
+            if (SeisWave::Ui::MenuBarOverflow more(
+                    {l("Workspace", "工作区"), l("Appearance", "界面外观"), l("Help [F1]", "帮助 [F1]")},
+                    l("More", "更多"));
+                more.open) {
+                if (SeisWave::Ui::beginDropdownMenu(l("Workspace", "工作区"))) {
+                    bool previous = chrome.floating;
+                    chrome.panelMenu();
+                    if (previous != chrome.floating)
+                        layout = true;
+                    ImGui::MenuItem(l("Active parameters", "当前模拟参数"), nullptr, &showSummary);
+                    if (ImGui::MenuItem(l("Restore layout", "恢复布局"))) {
+                        restoreLayout();
+                    }
+                    ImGui::EndMenu();
                 }
-                ImGui::EndMenu();
+                if (SeisWave::Ui::beginDropdownMenu(l("Appearance", "界面外观"))) {
+                    int language = language3D();
+                    if (ImGui::Combo("##acousticLanguage", &language, "English\0简体中文\0"))
+                        setLanguage3D(language);
+                    int theme = themeIndex3D();
+                    if (themeCombo3D("##acousticTheme", theme, 240))
+                        applyTheme3D(theme);
+                    float font = SeisWave::Ui::interfaceFontSize();
+                    ImGui::SetNextItemWidth(240);
+                    if (ImGui::SliderFloat(l("Font size (px)", "字体大小（px）"), &font, 16, 28, "%.0f")) {
+                        SeisWave::Ui::setInterfaceFontSize(font);
+                        layout = true;
+                    }
+                    glassAppearanceControls3D();
+                    ImGui::EndMenu();
+                }
+                if (ImGui::Button(l("Help [F1]", "帮助 [F1]")))
+                    help = !help;
             }
-            if (SeisWave::Ui::beginDropdownMenu(l("Appearance", "界面外观"))) {
-                int language = language3D();
-                if (ImGui::Combo("##acousticLanguage", &language, "English\0简体中文\0"))
-                    setLanguage3D(language);
-                int theme = themeIndex3D();
-                if (themeCombo3D("##acousticTheme", theme, 240))
-                    applyTheme3D(theme);
-                glassAppearanceControls3D();
-                ImGui::EndMenu();
-            }
-            if (ImGui::Button(l("Help [F1]", "帮助 [F1]")))
-                help = !help;
-            ImGui::EndMainMenuBar();
+            SeisWave::Ui::endWorkbenchMenuBar();
         }
         const auto *viewport = ImGui::GetMainViewport();
         const auto elapsed = std::string(l("Compute time: ", "计算耗时：")) +
@@ -1365,6 +1336,16 @@ void verifyInteractions(Workspace &app, SeisWave::Ui::AppRuntime &runtime,
         require(SeisWave::Ui::capture(SeisWave::Ui::outputRoot() / "screenshots/acoustic" / name, w, h),
                 "Acoustic interaction screenshot failed");
     };
+    const auto revealField = [&](const ImRect &rect) {
+        if (auto *fields = ImGui::FindWindowByID(app.fieldsWindowId)) {
+            if (rect.Min.y < fields->InnerClipRect.Min.y || rect.Max.y > fields->InnerClipRect.Max.y) {
+                ImGui::SetScrollY(fields,
+                                  fields->Scroll.y + rect.GetCenter().y - fields->InnerRect.GetCenter().y);
+                render();
+                render();
+            }
+        }
+    };
     app.wait();
     require(app.simulation.advance(150, app.error), "Record viewer fixture did not advance");
     app.accept(app.publish());
@@ -1434,6 +1415,7 @@ void verifyInteractions(Workspace &app, SeisWave::Ui::AppRuntime &runtime,
             "Fixed Reset / apply button failed");
     click(app.sessionActions.defaultsRect);
     auto interactiveDefaults = defaultOptions();
+    SeisWave::Ui::applyInitialModel2D(interactiveDefaults.model, true);
     interactiveDefaults.model.autoSurfaceReceivers = true;
     synchronizeSurfaceReceivers(interactiveDefaults.model, true, 4096);
     require(app.options == interactiveDefaults &&
@@ -1482,6 +1464,7 @@ void verifyInteractions(Workspace &app, SeisWave::Ui::AppRuntime &runtime,
     app.chrome.category = 1;
     render();
     render();
+    revealField(app.frequencyRect);
     click(app.frequencyRect);
     require(io.WantTextInput || ImGui::IsAnyItemActive(), "Acoustic input did not receive focus");
     const int before = app.palette;
@@ -1710,6 +1693,9 @@ void verifyInteractions(Workspace &app, SeisWave::Ui::AppRuntime &runtime,
                     app.nextCapacityRefresh < 1e50,
                 "Precision dropdown did not immediately refresh capacity");
     }
+    // Larger controls can put this field below the viewport. Scroll the real
+    // parameter child before clicking rather than targeting a clipped item.
+    revealField(app.autoBudgetRect);
     app.nextCapacityRefresh = 1e100;
     click(app.autoBudgetRect);
     render();
@@ -1719,6 +1705,9 @@ void verifyInteractions(Workspace &app, SeisWave::Ui::AppRuntime &runtime,
     render();
     require(app.options.memoryMiB == 0, "Automatic RAM checkbox did not restore hardware budget");
     app.undoEdits();
+    if (auto *fields = ImGui::FindWindowByID(app.fieldsWindowId))
+        ImGui::SetScrollY(fields, 0);
+    render();
     render();
     app.nextCapacityRefresh = 1e100;
     selectCombo(app.propagatorRect, 1);
@@ -1806,6 +1795,9 @@ int runWorkbench(bool smoke) {
     Workspace app;
     if (smoke) {
         app.options = defaultOptions();
+        SeisWave::Ui::applyInitialModel2D(app.options.model, true);
+        app.options.model.autoSurfaceReceivers = true;
+        app.syncSurfaceReceivers();
         app.backend = 0;
         app.precision = 1;
         applyTheme3D(11);

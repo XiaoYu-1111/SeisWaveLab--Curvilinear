@@ -1,0 +1,1 @@
+PASS: elastic default 500x200 / 2 m / 30 Hz / centered row-0 source / Coolwarm model+wave; native 2 m grid overlay; actual clock/FPS checkboxes, zero reserved width when hidden, preference roundtrip, unchanged simulation step

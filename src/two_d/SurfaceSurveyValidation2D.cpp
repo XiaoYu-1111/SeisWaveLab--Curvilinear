@@ -1,3 +1,4 @@
+#include "../common/ui/InitialModel2D.hpp"
 #include "CfsPml2D.hpp"
 #include "Seis2D/AcousticSolver2D.hpp"
 #include "Seis2D/ModelIo2D.hpp"
@@ -12,6 +13,88 @@ void check(bool ok, const std::string &message) {
     if (!ok)
         throw std::runtime_error(message);
 }
+void validateSurfaceForce(const std::filesystem::path &folder, bool gpu) {
+    std::ofstream report(folder / "surface-force.txt");
+    std::array<std::vector<double>, 4> references;
+    std::string error;
+    for (bool cuda : {false, true}) {
+        if (cuda && !gpu)
+            continue;
+        int reference = 0;
+        for (auto precision : {E::Precision::Float32, E::Precision::Float64})
+            for (bool q : {false, true}) {
+                E::Parameters p;
+                SeisWave::Ui::applyInitialModel2D(p);
+                check(p.nx == 500 && p.nz == 200 && p.spacing == 2 && p.frequency == 30 && p.sourceZ == 0 &&
+                          p.sourceX == -1 && p.layers.size() == 3,
+                      "Interactive default model mismatch");
+                p.nx = 129;
+                p.nz = 97;
+                p.duration = .16;
+                p.relief = 4;
+                p.wavelength = 180;
+                p.precision = precision;
+                p.attenuation.enabled = q;
+                p.externalAbsorption = true;
+                p.absorber = E::Absorber::CfsPml;
+                p.spongeX = p.spongeZ = 8;
+                p.autoSurfaceReceivers = true;
+                p.receiverTargetCount = 25;
+                E::Simulation s;
+                check(s.initialize(p, error, cuda ? E::BackendKind3D::Cuda : E::BackendKind3D::Cpu, {1, -1}),
+                      error);
+                check(s.parameters().sourceZ == 0 && std::abs(s.diagnostics().sourceWeightSum - 1) < 1e-5,
+                      "Truncated surface-force kernel is not normalized");
+                check(s.advance(s.totalSteps(), error), error);
+                check(s.diagnostics().finite && s.diagnostics().maxVelocity > 0 &&
+                          s.diagnostics().tractionRelative <
+                              (precision == E::Precision::Float32 ? 1e-4 : 1e-10),
+                      "Surface source lost finite propagation / traction-free projection");
+                bool signal = false;
+                for (const auto &r : s.receivers())
+                    for (double value : r.vz)
+                        signal |= value != 0;
+                check(signal, "Surface force produced no receiver signal");
+                const auto frame = s.snapshot().fields[1];
+                double relative = 0;
+                if (!cuda)
+                    references[reference] = frame;
+                else {
+                    double norm = 0, diff = 0;
+                    for (std::size_t i = 0; i < frame.size(); ++i) {
+                        norm += references[reference][i] * references[reference][i];
+                        const double d = frame[i] - references[reference][i];
+                        diff += d * d;
+                    }
+                    relative = std::sqrt(diff / std::max(norm, 1e-100));
+                    check(relative < 2e-4, "CPU/CUDA surface-force waveform mismatch");
+                }
+                ++reference;
+                const auto file = folder / "surface-force-model.vts";
+                E::ModelDocument loaded;
+                check(E::writeModelVts(s, file, {1, -1}, error) && E::readModelVts(file, loaded, error) &&
+                          loaded.parameters.sourceZ == 0,
+                      error);
+                auto bad = p;
+                bad.sourceZ = -1;
+                const auto step = s.step();
+                check(!s.initialize(bad, error) && s.step() == step,
+                      "Negative surface source accepted / changed active session");
+                bad = p;
+                bad.source.kind = SeisWave::SourceKind::IsotropicMoment;
+                check(!s.initialize(bad, error),
+                      "Surface moment source accepted without an interior stencil");
+                report << (cuda ? "CUDA" : "CPU") << " / "
+                       << (precision == E::Precision::Float32 ? "FP32" : "FP64") << " / "
+                       << (q ? "GSLS" : "elastic")
+                       << ": PASS row-0 force, normalized inward kernel, finite wavefield, receiver signal, "
+                          "traction, VTS; CUDA relative error "
+                       << relative << '\n';
+            }
+    }
+    report << "PASS: free-surface-centered regularized directional body force; not a prescribed traction "
+              "boundary source\n";
+}
 int main() {
     try {
         const auto folder = std::filesystem::path(SEIS3D_OUTPUT_ROOT) / "validation/auto-surface-2026-10-31";
@@ -21,6 +104,7 @@ int main() {
         compute.cpuThreads = 1;
         std::string error;
         const bool gpu = Seis3D::Curvilinear::queryBackend3D(E::BackendKind3D::Cuda).available;
+        validateSurfaceForce(folder, gpu);
         for (bool cuda : {false, true}) {
             if (cuda && !gpu)
                 continue;

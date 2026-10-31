@@ -1,0 +1,5 @@
+#pragma once
+namespace SeisWave {
+inline constexpr char version[] = "@PROJECT_VERSION@";
+inline constexpr char versionTag[] = "v@PROJECT_VERSION@";
+} // namespace SeisWave

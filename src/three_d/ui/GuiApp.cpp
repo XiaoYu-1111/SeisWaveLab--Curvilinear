@@ -1,3 +1,4 @@
+#include "ScalarLegendStrip.hpp"
 #include "MenuWidgets.hpp"
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -136,7 +137,7 @@ struct Workbench3D {
     int layoutBucket{-1};
     float toolbarHeight{};
     float layoutFontSize{};
-    float uiFontSize{20.0f};
+    float uiFontSize{22.0f};
     int groupEpoch{};
     bool groupsExpanded{};
     std::unordered_map<ImGuiID,int> groupApplied;
@@ -554,10 +555,12 @@ struct Workbench3D {
         if(workspace.beginFrame()){resetLayout=false;lastParameterMode=parameterHost.mode();}
         if(!workspace.message.empty())status=std::exchange(workspace.message,{});
         dirty=edited!=simulation->parameters()||selectedBackend!=static_cast<int>(simulation->backendInfo().kind)||computeSettings!=activeComputeSettings;
-        if(ImGui::BeginMainMenuBar()) {
+        if(SeisWave::Ui::beginWorkbenchMenuBar()) {
             if(functionButton3D("Home",FunctionRole3D::Model))homeRequested=true;
             homeRect={ImGui::GetItemRectMin(),ImGui::GetItemRectMax()};ImGui::SameLine();
             ImGui::TextColored(palette3D().accent,"SEIS3D");
+            const float menuWidth=SeisWave::Ui::MenuBarOverflow::width({label3D("Workspace"),label3D("Appearance")})+ImGui::GetFontSize()*18+48;
+            if(SeisWave::Ui::MenuBarOverflow more(menuWidth,language3D()?"更多":"More");more.open){
             if(SeisWave::Ui::beginDropdownMenu(label3D("Workspace"))) {
                 if(ImGui::MenuItem(label3D("Reset layout [F]")))restoreWorkspace();
                 if(workspace.menu(3,panels)){resetLayout=false;lastParameterMode=parameterHost.mode();}
@@ -577,12 +580,13 @@ struct Workbench3D {
                 ImGui::SliderFloat("##menuFont",&uiFontSize,16,28,"%.0f px");glassAppearanceControls3D();ImGui::EndMenu();
             }
             const float languageWidth=std::max(140.0f,ImGui::GetFontSize()*7),themeWidth=std::max(185.0f,ImGui::GetFontSize()*11);
-            const float right=ImGui::GetWindowWidth()-languageWidth-themeWidth-24;
-            if(ImGui::GetCursorPosX()<right)ImGui::SetCursorPosX(right);
+            const float right=SeisWave::Ui::workbenchMenuRightEdge()-languageWidth-themeWidth-24;
+            if(!more.collapsed&&ImGui::GetCursorPosX()<right)ImGui::SetCursorPosX(right);
             int lang=language3D();ImGui::SetNextItemWidth(languageWidth);
             if(ImGui::Combo("##language",&lang,"English\0简体中文\0"))setLanguage3D(lang);
             themeSelector("##topTheme",themeWidth);
-            ImGui::EndMainMenuBar();
+            }
+            SeisWave::Ui::endWorkbenchMenuBar();
         }
         const auto* vp=ImGui::GetMainViewport();
         const char* commands[]{running?"Pause [Space]":"Run [Space]","Step [N]","Clear fields [C]","Fit views [R]","Shortcuts [F1]","Apply / rebuild"};
@@ -1009,6 +1013,7 @@ struct Workbench3D {
                 }
                 if(functionButton3D("Reset visual parameters",FunctionRole3D::Danger))visuals=VisualSettings3D{};
                 if(group("Views & rebuild policy",true)) {
+                    SeisWave::Ui::runtimeDisplayOptions();
                     ImGui::Checkbox(label3D("Auto-fit after geometry changes"),&autoFitGeometry);
                     ImGui::TextWrapped(tr3D("Resize maps slices and receiver selection by relative position. Geometry edits fit slices and camera; material/source edits preserve framing."));
                     ImGui::Checkbox(label3D("Slice grid overlay"),&visuals.showGrid);
@@ -1106,45 +1111,29 @@ struct Workbench3D {
         ImGui::End();
     }
 
-    std::string legendTitle(bool material) const {
-        const auto scale=material?modelColorbarScale3D(visuals):colorbarScale3D(visuals);
-        const char* waves[]{"Vz","Vx","Vy","|V|","Pressure"};const char* models[]{"Material Vp","Material Vs","Material density"};
-        return std::string(tr3D(material?models[visuals.modelComponent]:waves[visuals.component]))+" | "+(scale.normalized?tr3D("Normalized amplitude"):scale.physicalUnit);
-    }
-    float legendHeight(bool material,float width) const {
-        const float title=ImGui::CalcTextSize(legendTitle(material).c_str(),nullptr,false,width).y;
-        return title+20+ImGui::GetTextLineHeight()+2*ImGui::GetStyle().ItemSpacing.y+(!material&&visuals.normalizedColorbar?ImGui::GetTextLineHeightWithSpacing():0);
-    }
-    float colorbarHeight() const {
-        const bool wave=waveLegendVisible3D(visuals),model=modelLegendVisible3D(visuals);
-        const float width=ImGui::GetContentRegionAvail().x;
-        if(wave&&model&&width>=400){const float half=(width-ImGui::GetStyle().ItemSpacing.x)*.5f;return std::max(legendHeight(false,half),legendHeight(true,half));}
-        return (wave?legendHeight(false,width):0)+(model?legendHeight(true,width):0);
-    }
-    void oneColorbar(bool material,float width) {
-        ImGui::BeginGroup();
-        const auto scale=material?modelColorbarScale3D(visuals):colorbarScale3D(visuals);
-        ImGui::TextWrapped("%s",legendTitle(material).c_str());
-        const auto at=ImGui::GetCursorScreenPos();const float margin=std::min(30.0f,width*.14f),bar=width-2*margin;
-        auto* draw=ImGui::GetWindowDrawList();const double high=scale.high,low=scale.low;
-        for(int n=0;n<128;++n){const double value=scale.physicalValue(low+(high-low)*n/127.0);draw->AddRectFilled({at.x+margin+bar*n/128,at.y},{at.x+margin+bar*(n+1)/128,at.y+10},packedColor3D(material?modelColor3D(value,visuals):waveColor3D(value,visuals)));}
-        const int ticks=width<320?3:5;
-        for(int n=0;n<ticks;++n){const float x=at.x+margin+bar*n/(ticks-1);char text[32];std::snprintf(text,sizeof(text),material?"%.4g":"%.2g",low+(high-low)*n/(ticks-1));const auto w=ImGui::CalcTextSize(text).x;draw->AddLine({x,at.y+10},{x,at.y+14},color3D(palette3D().text));draw->AddText({std::clamp(x-w*.5f,at.x,at.x+width-w),at.y+15},color3D(palette3D().text),text);}
-        ImGui::Dummy({width,20+ImGui::GetTextLineHeight()});
-        if(scale.normalized)ImGui::TextDisabled("1 = %.3g %s",scale.physicalHigh,scale.physicalUnit);
-        ImGui::EndGroup();
-    }
-    void colorbar() {
-        const float width=ImGui::GetContentRegionAvail().x;if(width<70)return;
-        const bool wave=waveLegendVisible3D(visuals),model=modelLegendVisible3D(visuals);
-        if(wave&&model&&width>=400) {
-            const float half=(width-ImGui::GetStyle().ItemSpacing.x)*.5f;
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX()+half);oneColorbar(false,half);ImGui::PopTextWrapPos();ImGui::SameLine();
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX()+half);oneColorbar(true,half);ImGui::PopTextWrapPos();
-        } else {
-            if(wave)oneColorbar(false,width);
-            if(model)oneColorbar(true,width);
+    std::vector<SeisWave::Ui::ScalarLegend> fieldLegends(bool terrain=false) const {
+        std::vector<SeisWave::Ui::ScalarLegend> legends;
+        for(bool material:{false,true}){
+            if(material?!modelLegendVisible3D(visuals):!waveLegendVisible3D(visuals))continue;
+            const auto scale=material?modelColorbarScale3D(visuals):colorbarScale3D(visuals);
+            const char* waves[]{"Vz","Vx","Vy","|V|","p"};const char* models[]{"Vp","Vs","Density"};
+            char title[192];
+            if(scale.normalized)std::snprintf(title,sizeof(title),"%s | 1 = %.3g %s",waves[visuals.component],scale.physicalHigh,scale.physicalUnit);
+            else std::snprintf(title,sizeof(title),"%s (%s)",material?models[visuals.modelComponent]:waves[visuals.component],scale.physicalUnit);
+            legends.push_back({title,scale.low,scale.high,[this,material,scale](double t){const double value=scale.physicalValue(scale.low+(scale.high-scale.low)*t);return packedColor3D(material?modelColor3D(value,visuals):waveColor3D(value,visuals));}});
         }
+        if(terrain&&visuals.colorTopography&&visuals.showColorbar){
+            const auto title=language3D()?(simulation->parameters().surfaceGrid.empty()?"相对高程 (m)":"DEM 高程 (m)"):(simulation->parameters().surfaceGrid.empty()?"Relative elevation (m)":"DEM elevation (m)");
+            legends.push_back({title,visuals.terrainLow,visuals.terrainHigh,[this](double t){return packedColor3D(terrainColor3D(visuals.terrainLow+(visuals.terrainHigh-visuals.terrainLow)*t,visuals));}});
+        }
+        return legends;
+    }
+    float colorbarHeight(bool terrain=false) const {
+        return SeisWave::Ui::scalarLegendHeight(static_cast<int>(fieldLegends(terrain).size()),ImGui::GetContentRegionAvail().x);
+    }
+    void colorbar(bool terrain=false) {
+        const auto legends=fieldLegends(terrain);
+        SeisWave::Ui::drawScalarLegendStrip("##3DFieldLegends",legends);
     }
 
     // Draws physical X-Z/Y-Z sections (including topographic warping) with cursor-centered zoom and linked picking.
@@ -1234,14 +1223,15 @@ struct Workbench3D {
 
     void spatialWindow() {
         if(!panels[2])return;
-        if(!ImGui::Begin(label3D("Spatial exploration"),&panels[2],workspace.prepare(label3D("Spatial exploration")))){ImGui::End();return;}workspace.tools(label3D("Spatial exploration"));ImGui::SameLine();if(ImGui::SmallButton(label3D("Reset camera [R]")))renderer.resetCamera();
+        if(!ImGui::Begin(label3D("Spatial exploration"),&panels[2],workspace.prepare(label3D("Spatial exploration")))){ImGui::End();return;}
+        const bool compactPane=ImGui::GetContentRegionAvail().y<360;
+        workspace.tools(label3D("Spatial exploration"));ImGui::SameLine();if(ImGui::SmallButton(label3D("Reset camera [R]")))renderer.resetCamera();
         ImGui::SameLine();if(ImGui::SmallButton(language3D()?"DEM 俯视":"DEM top view"))renderer.topViewCamera();
         ImGui::Checkbox(language3D()?"高程着色":"Elevation colors",&visuals.colorTopography);
         if(visuals.colorTopography){ImGui::SameLine();ImGui::SetNextItemWidth(150);ImGui::Combo("##terrainPalette",&visuals.terrainPalette,choices3D(kTerrainPalettes3D));}
-        ImGui::TextDisabled(tr3D("LMB orbit / wheel zoom / MMB pan"));
-        if(visuals.showDimensions)dimensionSummary(false);
-        auto size=ImGui::GetContentRegionAvail();size.y-=colorbarHeight();
-        if(visuals.colorTopography&&visuals.showColorbar)size.y-=2*ImGui::GetTextLineHeightWithSpacing()+24;
+        if(!compactPane)ImGui::TextDisabled(tr3D("LMB orbit / wheel zoom / MMB pan"));
+        if(visuals.showDimensions&&!compactPane)dimensionSummary(false);
+        auto size=ImGui::GetContentRegionAvail();size.y=std::max(48.f,size.y-colorbarHeight(true)-ImGui::GetStyle().ItemSpacing.y);
         if(size.x>16 && size.y>16) {
             const auto& io=ImGui::GetIO();
             // The viewport's optional scale can be (0,0) on the main GLFW
@@ -1270,22 +1260,8 @@ struct Workbench3D {
 
             } else {if(!error.empty())running=false;ImGui::TextWrapped("%s",error.empty()?(language3D()?"后台正在刷新视图…":"Refreshing view in background..."):error.c_str());}
         }
-        colorbar();
-        if(visuals.colorTopography&&visuals.showColorbar)terrainColorbar();
+        colorbar(true);
         ImGui::End();
-    }
-
-    void terrainColorbar() {
-        ImGui::TextUnformatted(language3D()?(simulation->parameters().surfaceGrid.empty()?"相对高程 (m)":"DEM 高程 (m)"):
-            (simulation->parameters().surfaceGrid.empty()?"Relative elevation (m)":"DEM elevation (m)"));
-        const auto at=ImGui::GetCursorScreenPos();const float width=ImGui::GetContentRegionAvail().x;
-        const float margin=25,bar=std::max(1.f,width-2*margin);auto* draw=ImGui::GetWindowDrawList();
-        for(int n=0;n<128;++n){const double h=visuals.terrainLow+(visuals.terrainHigh-visuals.terrainLow)*n/127.;
-            draw->AddRectFilled({at.x+margin+bar*n/128,at.y},{at.x+margin+bar*(n+1)/128,at.y+10},packedColor3D(terrainColor3D(h,visuals)));}
-        for(int n=0;n<3;++n){char text[48];std::snprintf(text,sizeof(text),"%.3f",visuals.terrainLow+(visuals.terrainHigh-visuals.terrainLow)*n/2);
-            const float x=at.x+margin+bar*n/2,w=ImGui::CalcTextSize(text).x;
-            draw->AddText({std::clamp(x-w*.5f,at.x,at.x+std::max(0.f,width-w)),at.y+14},color3D(palette3D().text),text);}
-        ImGui::Dummy({width,20+ImGui::GetTextLineHeight()});
     }
 
     void records() {recordView.draw(*simulation,selectedReceiver,&panels[6]);}
@@ -1436,7 +1412,7 @@ int runWorkbench3D(int argc,char** argv) {
         if(acquisitionSmoke)app.edited.receiverArray={ReceiverArrayKind3D::GridXY,2,2,1,12,8,1,1};
         if(workspaceSmoke){app.edited=applyModelPreset3D(1,app.edited);app.edited.maxSteps=40;}
         if(boundarySmoke){app.edited=applyModelPreset3D(2,app.edited);app.edited.maxSteps=40;app.edited.absorbingBoundary.cells={10,3,12};app.visuals.showAbsorbingLayer=true;}
-        if(colorbarSmoke){app.edited=applyModelPreset3D(0,app.edited);app.visuals.autoRange=true;}
+        if(colorbarSmoke){app.edited=applyModelPreset3D(0,app.edited);app.visuals.autoRange=true;app.visuals.colorTopography=true;app.visuals.terrainPalette=7;}
         if(layersSmoke||modelDisplaySmoke){app.edited=applyMaterialPreset3D(1,app.edited);app.materialPreset=1;app.edited.nx=100;app.edited.ny=20;app.edited.nz=100;app.edited.spacing=1;app.edited.topographyAmplitude=2;app.edited.topographyWavelength=60;app.edited.maxSteps=40;app.visuals.displayMode=1;}
         if(modelDisplaySmoke){app.edited.maxSteps=0;app.edited.duration=.12;app.edited.dominantFrequency=30;app.edited.sourceZ=20;app.visuals.autoRange=true;app.visuals.showGrid=false;}
         if(terrainSmoke) {
@@ -1516,7 +1492,7 @@ int runWorkbench3D(int argc,char** argv) {
             {1024,720,1,7,2,26},{1920,1080,0,5,0,22},
             {1600,1000,1,1,1,20},{1280,800,0,2,2,18},
             {1920,1080,1,6,0,26},{1280,800,1,8,0,20},
-            {1600,1000,0,9,1,22},{1600,1000,1,0,1,20}
+            {1600,1000,0,9,1,22},{1600,1000,1,11,1,22}
         };
         const auto smokeRevision=app.simulation->revision();const auto smokeCamera=app.renderer.cameraState();
         const float smokeGain=app.visuals.gain;const int smokePalette=app.visuals.palette,smokeModelPalette=app.visuals.modelPalette,smokeComponent=app.visuals.component;
@@ -1552,7 +1528,7 @@ int runWorkbench3D(int argc,char** argv) {
                 if(sourceSmoke){app.requestedTab=4;app.edited.source.kind=frame/10%2?SeisWave::SourceKind::IsotropicMoment:SeisWave::SourceKind::DirectionalForce;app.edited.source.direction=frame/10%3?std::array<double,3>{1,0,0}:std::array<double,3>{0,0,1};}
                 if(cflSmoke)app.requestedTab=0;
                 if(boundarySmoke){app.requestedTab=frame/10%3==2?2:8;app.visuals.showAbsorbingLayer=(frame/10)%2==0;app.visuals.displayMode=1;app.layoutPreset=1;app.resetLayout=true;app.groupsExpanded=true;++app.groupEpoch;}
-                if(colorbarSmoke){const int components[]{0,0,3,3,4,4,5,6,7,1,2,0};const int scalar=components[frame/10];app.requestedTab=frame/10==11?1:2;app.visuals.displayMode=scalar>=5?1:0;if(scalar>=5)app.visuals.modelComponent=scalar-5;else app.visuals.component=scalar;app.visuals.normalizedColorbar=(frame/10)%2==0;app.visuals.showGrid=false;app.layoutPreset=1;app.resetLayout=true;}
+                if(colorbarSmoke){const int components[]{0,0,3,3,4,4,5,6,7,1,2,0};const int scalar=components[frame/10];app.requestedTab=frame/10==11?1:2;app.visuals.displayMode=frame/10>=9?2:scalar>=5?1:0;if(scalar>=5)app.visuals.modelComponent=scalar-5;else app.visuals.component=scalar;app.visuals.normalizedColorbar=(frame/10)%2==0;app.visuals.showGrid=false;app.layoutPreset=1;app.resetLayout=true;}
                 if(modelDisplaySmoke){const int index=frame/10;const int modes[]{0,1,2,1,2,2,0,1,2,2,2,2};app.requestedTab=index==11?1:2;app.visuals.displayMode=modes[index];app.visuals.component=index==5?4:0;app.visuals.modelComponent=index%3;app.visuals.normalizedColorbar=index!=6;app.visuals.showWaveColorbar=index!=8;app.visuals.showModelColorbar=index!=9;app.resetLayout=true;}
                 if(recordsSmoke) {
                     const int index=frame/10;const int styles[]{3,1,0,2,4,5,0,0,3,3,5,3};const int palettes[]{0,0,13,3,0,1,4,5,2,7,8,13};

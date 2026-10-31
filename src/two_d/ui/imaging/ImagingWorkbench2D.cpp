@@ -554,6 +554,7 @@ struct Workspace {
         ImGui::EndDisabled();
         if (chrome.category == 3 &&
             ImGui::CollapsingHeader(l("Display", "显示"), ImGuiTreeNodeFlags_DefaultOpen)) {
+            SeisWave::Ui::runtimeDisplayOptions();
             ImGui::Checkbox(l("Normalize by illumination", "照明归一化"), &normalized);
             ImGui::Checkbox(l("Show background Vp", "显示背景 Vp"), &showBackground);
             ImGui::SliderFloat(l("Image clip / peak", "图像限幅 / 峰值"), &clip, .01f, 1.f, "%.2f");
@@ -808,10 +809,11 @@ struct Workspace {
     ImVec2 lastViewportSize{};
     void dock() {
         chrome.views.beginFrame();
-        if (ImGui::BeginMainMenuBar()) {
+        if (SeisWave::Ui::beginWorkbenchMenuBar()) {
             if (ImGui::Button(l("Home", "主页")))
                 home = true;
             navigation.draw(options.model, options.compute, static_cast<BackendKind3D>(backend), error);
+            if(SeisWave::Ui::MenuBarOverflow more({l("Workspace","工作区"),l("Appearance","界面外观")},l("More","更多"));more.open){
             if (SeisWave::Ui::beginDropdownMenu(l("Workspace", "工作区"))) {
                 bool previous = chrome.floating;
                 chrome.panelMenu();
@@ -833,10 +835,17 @@ struct Workspace {
                 int theme = themeIndex3D();
                 if (themeCombo3D("##imagingTheme", theme, 240))
                     applyTheme3D(theme);
+                float font=SeisWave::Ui::interfaceFontSize();
+                ImGui::SetNextItemWidth(240);
+                if(ImGui::SliderFloat(l("Font size (px)","字体大小（px）"),&font,16,28,"%.0f")){
+                    SeisWave::Ui::setInterfaceFontSize(font);
+                    layout=true;
+                }
                 glassAppearanceControls3D();
                 ImGui::EndMenu();
             }
-            ImGui::EndMainMenuBar();
+            }
+            SeisWave::Ui::endWorkbenchMenuBar();
         }
         const auto *viewport = ImGui::GetMainViewport();
         const double milliseconds =

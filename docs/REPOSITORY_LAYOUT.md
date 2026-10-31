@@ -17,6 +17,7 @@
 | `tools` | 分析、导出验证、参考提取及博客打包工具 |
 | `third_party` | 已使用的库、必要参考源码及来源说明 |
 | `LICENSE`、`THIRD_PARTY_NOTICES.md` | 项目许可与第三方来源 |
+| `VERSION`、`cmake/Version.cmake`、`CHANGELOG.md` | 单一软件版本来源、构建读取入口与历史变更 |
 | `.gitignore`、`.gitattributes`、`AGENTS.md` | 仓库维护约定 |
 
 上游参考目录只保存直接 RHS 验证所需的三个原文件及许可，不复制整个原始仓库。应用图标属于源资源，故保存在仓库；原来位于外层 `out/assets/icons` 的副本不再是构建前提。

@@ -52,7 +52,7 @@ bool prepareElasticTransfer(ModelTransfer2D &input, Module2D target, std::string
             }
     const int margin = p.source.kind == SeisWave::SourceKind::IsotropicMoment ? 5 : 2;
     p.sourceX = std::clamp(p.sourceX < 0 ? p.nx / 2 : p.sourceX, margin, p.nx - margin - 1);
-    p.sourceZ = std::clamp(p.sourceZ, margin, p.nz - margin - 1);
+    p.sourceZ = std::clamp(p.sourceZ, p.source.kind==SeisWave::SourceKind::IsotropicMoment?margin:0, p.nz - margin - 1);
     p.receiverStart = std::clamp(p.receiverStart, 0, p.nx - 1);
     p.receiverStride = std::max(1, p.receiverStride);
     p.receiverDepth = std::clamp(p.receiverDepth, 0, p.nz - 1);

@@ -1,8 +1,9 @@
 # Standalone Git repository entry; all generated files go to ../out.
 cmake_minimum_required(VERSION 3.25)
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/BuildLayout.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/Version.cmake")
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-    project(SeisWaveLab_Curvilinear VERSION 0.16.0 LANGUAGES CXX)
+    project(SeisWaveLab_Curvilinear VERSION ${SEISWAVE_VERSION} LANGUAGES CXX)
     include("${CMAKE_CURRENT_LIST_DIR}/cmake/ProjectOptions.cmake")
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/Targets.cmake")

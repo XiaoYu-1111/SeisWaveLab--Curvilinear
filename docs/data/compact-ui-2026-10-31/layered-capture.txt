@@ -1,0 +1,13 @@
+Captured 2D model | 2560x1494 | 0 steps
+Captured 2D workbench | 2560x1494 | 264 steps
+Captured 2D completed | 2560x1494 | 662 steps
+Captured 2D model-io | 2560x1494 | 662 steps
+Captured 2D export | 2560x1494 | 662 steps
+Captured 2D segy | 2560x1494 | 662 steps
+Captured 2D help | 2560x1494 | 662 steps
+Captured 2D display | 2560x1494 | 662 steps
+Captured 2D record-options | 2560x1494 | 662 steps
+Captured 2D layers | 2560x1494 | 662 steps
+Captured 2D terrain | 2560x1494 | 662 steps
+Captured 2D source-explosion | 2560x1494 | 150 steps
+Captured 2D elevation-examples | 2560x1494 | 150 steps

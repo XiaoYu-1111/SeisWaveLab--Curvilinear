@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-31",
+  "captures": [
+    {
+      "source": "out/screenshots/auto-surface/elastic.ppm",
+      "path": "images/compact-ui/elastic.png",
+      "theme": "Red Yellow Orange",
+      "size": [
+        1600,
+        1000
+      ],
+      "sha256": "3282f7e7923e3f770a934560c3dde9c2dcfa6345776b2d07dcb38b7770dfa68c",
+      "processing": "Lossless PNG, complete native framebuffer"
+    },
+    {
+      "source": "out/screenshots/acoustic/auto-surface.ppm",
+      "path": "images/compact-ui/acoustic.png",
+      "theme": "Red Yellow Orange",
+      "size": [
+        1600,
+        1000
+      ],
+      "sha256": "a037172f82b83d1b8d0d59f5698733f7a82c137b0f260270137a5569ee947add",
+      "processing": "Lossless PNG, complete native framebuffer"
+    },
+    {
+      "source": "out/validation/ui/colorbar-review/case_11_1600x1000_zh.ppm",
+      "path": "images/compact-ui/three-d.png",
+      "theme": "Red Yellow Orange",
+      "size": [
+        1600,
+        1000
+      ],
+      "sha256": "2bc0cb16050039998d825534c4cb6f3a5e034bdb9a315e82878566d42136583c",
+      "processing": "Lossless PNG, complete native framebuffer"
+    }
+  ]
+}

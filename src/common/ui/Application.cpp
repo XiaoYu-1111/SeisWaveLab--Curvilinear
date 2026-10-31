@@ -13,6 +13,10 @@ int main(int argc, char **argv) {
     try {
         using namespace SeisWave::Ui;
         using namespace Seis3D::Curvilinear::Ui;
+        if(argc>1&&std::string(argv[1])=="--version"){
+            std::cout<<"SeisWaveLab_Curvilinear v"<<applicationVersion()<<'\n';
+            return 0;
+        }
         loadAppearancePreferences();
         const std::string mode = argc > 1 ? argv[1] : "";
         struct SaveAppearance {

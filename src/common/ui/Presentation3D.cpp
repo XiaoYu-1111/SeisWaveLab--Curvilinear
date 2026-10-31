@@ -187,8 +187,8 @@ void applyTheme3D(int theme) {
         ImGui::StyleColorsDark();
     auto &s = ImGui::GetStyle();
     s.WindowPadding = {12, 10};
-    s.FramePadding = {8, 5};
-    s.ItemSpacing = {8, 7};
+    s.FramePadding = {10, 6};
+    s.ItemSpacing = {10, 8};
     s.FrameRounding = 4;
     s.TabRounding = 4;
     s.GrabRounding = 4;

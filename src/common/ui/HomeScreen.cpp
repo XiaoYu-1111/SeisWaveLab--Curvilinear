@@ -191,7 +191,7 @@ Route runHomeScreen(bool smoke, int choice) {
                          ImGuiWindowFlags_NoSavedSettings);
         ImGui::TextColored(palette3D().accent, "SEISWAVE LAB");
         ImGui::SameLine();
-        ImGui::TextDisabled("CURVILINEAR");
+        ImGui::TextDisabled("CURVILINEAR v%s",applicationVersion());
         ImGui::SameLine(std::max(360.f, ImGui::GetWindowWidth() - 424));
         int language = language3D();
         ImGui::SetNextItemWidth(140);

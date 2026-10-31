@@ -1,3 +1,6 @@
+#include "GridDisplay2D.hpp"
+#include "InitialModel2D.hpp"
+#include "ScalarLegendStrip.hpp"
 #include "ParameterPanel2D.hpp"
 #include "ModelEditor2D.hpp"
 #include "CommandStrip2D.hpp"
@@ -88,7 +91,7 @@ void fitAcquisition(Parameters &p) {
     const int margin =
         p.source.kind == SeisWave::SourceKind::IsotropicMoment && p.nx >= 11 && p.nz >= 11 ? 5 : 2;
     p.sourceX = p.sourceX < 0 ? -1 : std::clamp(p.sourceX, margin, std::max(margin, p.nx - 1 - margin));
-    p.sourceZ = std::clamp(p.sourceZ, margin, std::max(margin, p.nz - 1 - margin));
+    p.sourceZ = std::clamp(p.sourceZ, p.source.kind==SeisWave::SourceKind::IsotropicMoment?margin:0, std::max(margin, p.nz - 1 - margin));
     p.receiverStart = std::clamp(p.receiverStart, 0, std::max(0, p.nx - 1));
     p.receiverDepth = std::clamp(p.receiverDepth, 0, std::max(0, p.nz - 1));
     p.receiverStride = std::max(1, p.receiverStride);
@@ -116,7 +119,7 @@ struct Workbench {
     int activeTerrainPreset{-1};
     SurfaceSamples activeTerrainPresetSource;
     ImRect layerEditRect;
-    int renderStrideX{1}, renderStrideZ{1};
+    int renderStrideX{1}, renderStrideZ{1}, gridDisplayStride{1};
     SeisWave::Ui::RecordView recordView;
     SeisWave::ImportedRecords imported;
     bool useImported{};
@@ -135,6 +138,7 @@ struct Workbench {
     Seis3D::Curvilinear::CudaDeviceInventory3D inventory;
     ImRect homeRect,elapsedRect,imagingRect;
     ImRect surfaceReceiverRect,autoReceiverRect;
+    std::array<ImVec4,2> runtimeOptionRects;
     bool layout{true}, domainVisible{}, focusParameters{};
     int lastWidth{};
     float recordHeight{};
@@ -171,6 +175,7 @@ struct Workbench {
         rememberDraft = remember;
         navigation.current =
             viscoelastic ? SeisWave::Ui::Module2D::Viscoelastic : SeisWave::Ui::Module2D::Elastic;
+        SeisWave::Ui::applyInitialModel2D(staged);
         staged.externalAbsorption = true;
         staged.autoSurfaceReceivers=true;
         inventory = Seis3D::Curvilinear::queryCudaDevices3D();
@@ -510,12 +515,13 @@ struct Workbench {
         SeisWave::Ui::setGlassSceneActive(running);
         if(workspace.beginFrame()){layout=false;lastParameterMode=parameterHost.mode();}
         if(!workspace.message.empty())status=std::exchange(workspace.message,{});
-        if (ImGui::BeginMainMenuBar()) {
+        if (SeisWave::Ui::beginWorkbenchMenuBar()) {
             if (button("Home", "主页", FunctionRole3D::Model))
                 home = true;
             homeRect = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
             navigation.draw(staged,settings,static_cast<BackendKind3D>(selectedBackend),error);
             imagingRect=navigation.rootRect;
+            if(SeisWave::Ui::MenuBarOverflow more({l("Workspace","工作区"),l("Appearance","界面外观"),l("Parameter panels","参数面板"),l("Help [F1]","帮助 [F1]")},l("More","更多"));more.open){
             if (SeisWave::Ui::beginDropdownMenu(l("Workspace", "工作区"))) {
                 std::array<bool,4> visibility{parameterWindow,summaryWindow,waveWindow,recordWindow};
                 if(workspace.menu(2,visibility)){parameterWindow=visibility[0];summaryWindow=visibility[1];waveWindow=visibility[2];recordWindow=visibility[3];lastParameterMode=parameterHost.mode();layout=false;}
@@ -553,7 +559,8 @@ struct Workbench {
             if(SeisWave::Ui::beginDropdownMenu(l("Parameter panels","参数面板"))){if(parameterHost.menu())parameterWindow=true;ImGui::EndMenu();}
             if (button("Help [F1]", "帮助 [F1]", FunctionRole3D::Display))
                 help = !help;
-            ImGui::EndMainMenuBar();
+            }
+            SeisWave::Ui::endWorkbenchMenuBar();
         }
         const auto *vp = ImGui::GetMainViewport();
         const auto elapsed=std::string(l("Compute time: ","计算耗时："))+SeisWave::Ui::computeElapsedText(simulation.diagnostics().totalStepMs);
@@ -926,7 +933,9 @@ struct Workbench {
                 ImGui::Checkbox(l("Wavefield", "波场图层"), &showWave);
                 ImGui::Checkbox(l("Material model", "介质图层"), &showModel);
                 ImGui::Checkbox(l("Normalized wave colorbar", "归一化波场色标"), &normalized);
+                runtimeOptionRects=SeisWave::Ui::runtimeDisplayOptions();
                 ImGui::Checkbox(l("Actual grid [G]", "真实节点网格 [G]"), &grid);
+                ImGui::TextDisabled("%s %.3g m",l("Grid line spacing (auto):","网格线间隔（自动）："),gridDisplayStride*simulation.parameters().spacing);
                 if(ImGui::Checkbox(l("Absorber overlay [B]", "吸收区显示 [B]"), &sponge))fit=true;
                 if(sponge){
                     ImGui::TextUnformatted(l("Boundary tint opacity", "边界着色不透明度"));ImGui::SetNextItemWidth(-1);
@@ -1056,6 +1065,8 @@ struct Workbench {
         }
         if (sessionActions.defaults) {
             staged = Parameters{};
+            wavePalette=modelPalette=1;
+            SeisWave::Ui::applyInitialModel2D(staged);
             staged.externalAbsorption=true;
             staged.autoSurfaceReceivers=true;syncSurfaceReceivers();
             if (rememberDraft)
@@ -1246,7 +1257,21 @@ struct Workbench {
         const double range = peak / gain;
         displayedWaveRange=range;
         renderedAbsorberCells=0;
-        const bool compactPlot = ImGui::GetContentRegionAvail().y < ImGui::GetFontSize() * 13;
+        std::vector<SeisWave::Ui::ScalarLegend> legends;
+        char legendTitle[192];
+        if (showWave) {
+            const char* name=component==0?"Vz":component==1?"Vx":component==2?"|V|":"p";
+            const char* unit=component==3?"Pa":"m/s";
+            if(normalized)std::snprintf(legendTitle,sizeof(legendTitle),"%s | 1 = %.3g %s",name,range,unit);
+            else std::snprintf(legendTitle,sizeof(legendTitle),"%s (%s)",name,unit);
+            legends.push_back({legendTitle,component==2?0.:(normalized?-1.:-range),normalized?1.:range,
+                [this](double t){return paletteColor(t,wavePalette);}});
+        }
+        if(showModel){
+            std::snprintf(legendTitle,sizeof(legendTitle),"%s (%s)",modelComponent==0?"Vp":modelComponent==1?"Vs":"Density",modelComponent==2?"kg/m3":"m/s");
+            legends.push_back({legendTitle,minMaterial,maxMaterial,[this](double t){return paletteColor(t,modelPalette);}});
+        }
+        const float legendHeight=SeisWave::Ui::scalarLegendHeight(static_cast<int>(legends.size()),ImGui::GetContentRegionAvail().x);
         if (ImGui::GetContentRegionAvail().x < 700)
             ImGui::Text("%d x %d | %.1f x %.1f m", p.nx, p.nz, (p.nx - 1) * p.spacing,
                         (p.nz - 1) * p.spacing);
@@ -1255,7 +1280,7 @@ struct Workbench {
                         (p.nz - 1) * p.spacing, p.nx, p.nz, p.frequency);
         const float plotHeight =
             std::max(80.f, ImGui::GetContentRegionAvail().y -
-                               (compactPlot ? ImGui::GetFontSize() + 28 : ImGui::GetFontSize() * 2 + 65) -
+                               legendHeight -
                                (grid ? ImGui::GetFontSize() + ImGui::GetStyle().ItemSpacing.y : 0));
         if (fit)
             ImPlot::SetNextAxesToFit();
@@ -1337,17 +1362,19 @@ struct Workbench {
             }
             for(int k=0;k<p.nz-1;k+=renderStrideZ)for(int i=0;i<p.nx-1;i+=renderStrideX)
                 renderCell(i,k,std::min(p.nx-1,i+renderStrideX),std::min(p.nz-1,k+renderStrideZ),false);
+            const auto o=ImPlot::PlotToPixels(0,0),px=ImPlot::PlotToPixels(p.spacing,0),pz=ImPlot::PlotToPixels(0,p.spacing);
+            gridDisplayStride=SeisWave::Ui::displayGridStride2D(p.nx,p.nz,p.spacing,std::min(std::abs(px.x-o.x),std::abs(pz.y-o.y)));
             if (grid) {
-                for (int k = 0;; k = std::min(p.nz - 1, k + renderStrideZ)) {
-                    for (int i = 0; i < p.nx - 1; i += renderStrideX)
-                        draw->AddLine(toPixel(i, k), toPixel(std::min(p.nx - 1, i + renderStrideX), k),
+                for (int k = 0;; k = std::min(p.nz - 1, k + gridDisplayStride)) {
+                    for (int i = 0; i < p.nx - 1; i += gridDisplayStride)
+                        draw->AddLine(toPixel(i, k), toPixel(std::min(p.nx - 1, i + gridDisplayStride), k),
                                       color3D(palette3D().text, .25f));
                     if (k == p.nz - 1)
                         break;
                 }
-                for (int i = 0;; i = std::min(p.nx - 1, i + renderStrideX)) {
-                    for (int k = 0; k < p.nz - 1; k += renderStrideZ)
-                        draw->AddLine(toPixel(i, k), toPixel(i, std::min(p.nz - 1, k + renderStrideZ)),
+                for (int i = 0;; i = std::min(p.nx - 1, i + gridDisplayStride)) {
+                    for (int k = 0; k < p.nz - 1; k += gridDisplayStride)
+                        draw->AddLine(toPixel(i, k), toPixel(i, std::min(p.nz - 1, k + gridDisplayStride)),
                                       color3D(palette3D().text, .25f));
                     if (i == p.nx - 1)
                         break;
@@ -1364,65 +1391,7 @@ struct Workbench {
         if (grid && (renderStrideX > 1 || renderStrideZ > 1))
             ImGui::Text("%s %d x %d", l("View stride (solver unchanged)", "显示抽样（计算网格不变）"),
                         renderStrideX, renderStrideZ);
-        if (compactPlot) {
-            if (ImGui::BeginTable("##2DCompactLegends", 2, ImGuiTableFlags_SizingStretchSame)) {
-                for (int side = 0; side < 2; ++side) {
-                    ImGui::TableNextColumn();
-                    const auto at = ImGui::GetCursorScreenPos();
-                    const float width = ImGui::GetContentRegionAvail().x;
-                    for (int i = 0; i < 64; ++i)
-                        ImGui::GetWindowDrawList()->AddRectFilled(
-                            {at.x + width * i / 64, at.y}, {at.x + width * (i + 1) / 64, at.y + 6},
-                            paletteColor(i / 63., side ? modelPalette : wavePalette));
-                    ImGui::Dummy({width, 8});
-                    if (side)
-                        ImGui::Text("%s %.0f",
-                                    modelComponent == 0   ? "Vp"
-                                    : modelComponent == 1 ? "Vs"
-                                                          : "rho",
-                                    maxMaterial);
-                    else
-                        ImGui::Text("%s %s",
-                                    component == 0   ? "Vz"
-                                    : component == 1 ? "Vx"
-                                    : component == 2 ? "|V|"
-                                                     : "P",
-                                    normalized ? (component == 2 ? "[0,1]" : "[-1,1]")
-                                               : l("physical", "物理值"));
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip(
-                            "%s %.4g .. %.4g %s", side ? "Model" : "Wave",
-                            side ? minMaterial : (component == 2 ? 0 : -range), side ? maxMaterial : range,
-                            side ? (modelComponent == 2 ? "kg/m3" : "m/s") : (component == 3 ? "Pa" : "m/s"));
-                }
-                ImGui::EndTable();
-            }
-            ImGui::End();
-            return;
-        }
-        const float width = ImGui::GetContentRegionAvail().x;
-        const auto bar = [&](int palette) {
-            const auto at = ImGui::GetCursorScreenPos();
-            for (int i = 0; i < 128; ++i)
-                ImGui::GetWindowDrawList()->AddRectFilled({at.x + width * i / 128, at.y},
-                                                          {at.x + width * (i + 1) / 128, at.y + 10},
-                                                          paletteColor(i / 127., palette));
-            ImGui::Dummy({width, 12});
-        };
-        bar(wavePalette);
-        ImGui::Text("%s | %s | %s %.4g %s",
-                    component == 0   ? "Vz"
-                    : component == 1 ? "Vx"
-                    : component == 2 ? "|V|"
-                                     : "Pressure",
-                    normalized ? (component == 2 ? "0 .. 1" : "-1 .. 1") : l("Physical scale", "物理刻度"),
-                    normalized ? "1 =" : "+/-", range, component == 3 ? "Pa" : "m/s");
-        bar(modelPalette);
-        ImGui::Text("%s: %.2f .. %.2f %s",
-                    modelComponent == 0   ? "Vp"
-                    : modelComponent == 1 ? "Vs"
-                                          : "Density",
-                    minMaterial, maxMaterial, modelComponent == 2 ? "kg/m3" : "m/s");
+        SeisWave::Ui::drawScalarLegendStrip("##2DFieldLegends",legends);
         ImGui::End();
     }
     void records() {
@@ -1557,7 +1526,38 @@ int validateCfsPmlWorkflow2D(){
     std::string error;SeisWave::Ui::AppRuntime runtime;
     if(!runtime.open("2D CFS-PML workflow",true,error))throw std::runtime_error(error);
     glfwSetWindowSize(runtime.window(),2560,1494);setLanguage3D(1);applyTheme3D(11);SeisWave::Ui::setParameterDisplayMode(2,0);
-    Workbench app;app.staged.nx=96;app.staged.nz=80;app.staged.sourceZ=16;app.staged.receiverCount=20;app.staged.receiverTargetCount=20;app.staged.relief=2;app.staged.duration=.08;app.staged.maxSteps=0;
+    Workbench app;
+    {
+        const auto saved=app.staged;
+        const bool clock=SeisWave::Ui::systemClockVisible(),fps=SeisWave::Ui::frameRateVisible();
+        SeisWave::Ui::systemClockVisible()=SeisWave::Ui::frameRateVisible()=true;
+        glfwSetWindowSize(runtime.window(),1600,1000);SeisWave::Ui::setInterfaceFontSize(22);
+        if(!app.apply()||!app.simulation.advance(250,error))throw std::runtime_error(app.error+error);
+        app.category=3;app.layout=true;
+        const auto draw=[&]{runtime.begin();app.toolbar();app.controls();app.activeParameters();app.wavefield();app.records();runtime.present();};
+        auto& io=ImGui::GetIO();io.AddFocusEvent(true);io.AddMousePosEvent(-100,-100);
+        for(int i=0;i<5;++i)draw();
+        const auto folder=SeisWave::Ui::outputRoot()/"screenshots/defaults-status";
+        std::filesystem::create_directories(folder);
+        if(app.staged.nx!=500||app.staged.nz!=200||app.staged.spacing!=2||app.staged.frequency!=30||app.staged.sourceZ!=0||app.staged.sourceX!=-1||app.wavePalette!=1||app.modelPalette!=1||app.gridDisplayStride!=1)throw std::runtime_error("Initial elastic layout / source / grid / palette mismatch");
+        int w{},h{};glfwGetFramebufferSize(runtime.window(),&w,&h);
+        if(!SeisWave::Ui::capture(folder/"elastic.ppm",w,h))throw std::runtime_error("Default elastic capture failed");
+        const auto clickStatus=[&](int field){const auto rect=app.runtimeOptionRects[field];io.AddMousePosEvent((rect.x+rect.z)*.5f,(rect.y+rect.w)*.5f);draw();io.AddMouseButtonEvent(0,true);draw();io.AddMouseButtonEvent(0,false);draw();};
+        const auto step=app.simulation.step();
+        clickStatus(0);if(SeisWave::Ui::systemClockVisible()||!SeisWave::Ui::frameRateVisible())throw std::runtime_error("Clock display checkbox failed");
+        clickStatus(1);if(SeisWave::Ui::systemClockVisible()||SeisWave::Ui::frameRateVisible()||SeisWave::Ui::runtimeStatusWidth()!=0)throw std::runtime_error("FPS display checkbox failed");
+        const auto file=SeisWave::Ui::outputRoot()/"validation/defaults-status-preferences.cfg";
+        SeisWave::Ui::saveAppearancePreferences(file);
+        SeisWave::Ui::systemClockVisible()=SeisWave::Ui::frameRateVisible()=true;
+        if(!SeisWave::Ui::loadAppearancePreferences(file)||SeisWave::Ui::systemClockVisible()||SeisWave::Ui::frameRateVisible())throw std::runtime_error("Runtime display preferences roundtrip failed");
+        clickStatus(0);clickStatus(1);
+        if(!SeisWave::Ui::systemClockVisible()||!SeisWave::Ui::frameRateVisible()||app.simulation.step()!=step)throw std::runtime_error("Runtime display toggle changed simulation / failed to restore");
+        std::ofstream(SeisWave::Ui::outputRoot()/"validation/defaults-status-ui.txt")<<"PASS: elastic default 500x200 / 2 m / 30 Hz / centered row-0 source / Coolwarm model+wave; native 2 m grid overlay; actual clock/FPS checkboxes, zero reserved width when hidden, preference roundtrip, unchanged simulation step\n";
+        SeisWave::Ui::systemClockVisible()=clock;SeisWave::Ui::frameRateVisible()=fps;
+        app.staged=saved;app.category=2;app.layout=true;
+        glfwSetWindowSize(runtime.window(),2560,1494);
+    }
+    app.staged.nx=96;app.staged.nz=80;app.staged.sourceZ=16;app.staged.receiverCount=20;app.staged.receiverTargetCount=20;app.staged.relief=2;app.staged.duration=.08;app.staged.maxSteps=0;
     if(!app.apply())throw std::runtime_error(app.error);
     app.category=2;++app.groupEpoch;app.groupsExpanded=true;
     const auto draw=[&]{runtime.begin();app.toolbar();app.controls();app.activeParameters();app.wavefield();app.records();runtime.present();};
@@ -1862,6 +1862,10 @@ int runWorkbench2D(bool smoke, bool homeTest, bool imagingRouteTest, bool viscoe
         std::cout << "2D mode isolation PASS: separate elastic/viscoelastic drafts; no foreign rebuild\n";
     }
     if (smoke) {
+        // Keep the established homogeneous CFL/source-limit keyboard fixture;
+        // interactive startup now uses a separate three-layer example.
+        app.staged.layered=false;
+        app.staged.vp=3000;app.staged.vs=1700;app.staged.density=2200;
         app.staged.nx = app.staged.nz = 160;
         app.staged.spacing = 2.5;
         app.staged.frequency = 30;

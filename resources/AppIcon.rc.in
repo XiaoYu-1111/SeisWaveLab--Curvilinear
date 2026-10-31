@@ -22,8 +22,8 @@ BEGIN
             VALUE "CompanyName", "XIAO YU\0"
             VALUE "FileDescription", "SeisWave Lab · Curvilinear\0"
             VALUE "FileVersion", "@PROJECT_VERSION@\0"
-            VALUE "InternalName", "SeisWaveLab_Curvilinear\0"
-            VALUE "OriginalFilename", "SeisWaveLab_Curvilinear.exe\0"
+            VALUE "InternalName", "@SEISWAVE_EXECUTABLE@\0"
+            VALUE "OriginalFilename", "@SEISWAVE_EXECUTABLE@\0"
             VALUE "ProductName", "SeisWave Lab · Curvilinear\0"
             VALUE "ProductVersion", "@PROJECT_VERSION@\0"
         END

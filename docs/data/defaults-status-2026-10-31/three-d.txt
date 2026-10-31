@@ -1,0 +1,12 @@
+UI capture case_0_1600x1000_zh theme=3 font=20 layout=0 panel=0 | presentation invariant PASS
+UI capture case_1_1600x1000_en theme=3 font=20 layout=0 panel=1 | presentation invariant PASS
+UI capture case_2_1280x800_zh theme=0 font=20 layout=0 panel=2 | presentation invariant PASS
+UI capture case_3_1024x720_en theme=4 font=20 layout=0 panel=3 | presentation invariant PASS
+UI capture case_4_1024x720_zh theme=7 font=26 layout=2 panel=4 | presentation invariant PASS
+UI capture case_5_1920x1080_en theme=5 font=22 layout=0 panel=0 | presentation invariant PASS
+UI capture case_6_1600x1000_zh theme=1 font=20 layout=1 panel=1 | presentation invariant PASS
+UI capture case_7_1280x800_en theme=2 font=18 layout=2 panel=2 | presentation invariant PASS
+UI capture case_8_1920x1080_zh theme=6 font=26 layout=0 panel=3 | presentation invariant PASS
+UI capture case_9_1280x800_zh theme=8 font=20 layout=0 panel=4 | presentation invariant PASS
+UI capture case_10_1600x1000_en theme=9 font=22 layout=1 panel=0 | presentation invariant PASS
+UI capture case_11_1600x1000_zh theme=11 font=22 layout=1 panel=1 | presentation invariant PASS

@@ -1,4 +1,5 @@
 #include "AppRuntime.hpp"
+#include "SeisCommon/Version.hpp"
 #include "Presentation3D.hpp"
 #include "GlassMaterial.hpp"
 #include "imgui.h"
@@ -22,7 +23,8 @@
 #endif
 namespace SeisWave::Ui {
 namespace {
-float interfaceFont = 20;
+float interfaceFont = 22;
+bool showClock=true,showFps=true;
 int parameterModes[2]{};
 struct WindowState {
     int width{1600}, height{1000}, x{}, y{};
@@ -41,6 +43,9 @@ void setParameterDisplayMode(int dimension,int mode){if(mode>=0&&mode<=2)paramet
 float interfaceFontSize() {
     return interfaceFont;
 }
+const char *applicationVersion(){return SeisWave::version;}
+bool &systemClockVisible(){return showClock;}
+bool &frameRateVisible(){return showFps;}
 void saveAppearancePreferences(const std::filesystem::path& destination) {
     const auto file = destination.empty()?outputRoot()/"ui/preferences.cfg":destination;
     const auto folder = file.parent_path();
@@ -55,6 +60,8 @@ void saveAppearancePreferences(const std::filesystem::path& destination) {
         values[key] = value;
     in.close();
     values["font"] = std::to_string(interfaceFontSize());
+    values["system_clock"]=showClock?"1":"0";
+    values["frame_rate"]=showFps?"1":"0";
     values["language"] = std::to_string(Seis3D::Curvilinear::Ui::language3D());
     values["theme"] = std::to_string(Seis3D::Curvilinear::Ui::themeIndex3D());
     values["theme_key"] = Seis3D::Curvilinear::Ui::themeKey3D(Seis3D::Curvilinear::Ui::themeIndex3D());
@@ -89,6 +96,8 @@ bool loadAppearancePreferences(const std::filesystem::path& source) {
         if((key=="parameters_2d"||key=="parameters_3d")&&value==std::floor(value)&&value>=0&&value<=2)setParameterDisplayMode(key=="parameters_2d"?2:3,static_cast<int>(value));
         if(key=="language"&&(value==0||value==1))setLanguage3D(static_cast<int>(value));
         if(key=="font")setInterfaceFontSize(static_cast<float>(value));
+        if(key=="system_clock"&&(value==0||value==1))showClock=value!=0;
+        if(key=="frame_rate"&&(value==0||value==1))showFps=value!=0;
         if(key=="glass_finish"&&(value==0||value==1))setGlassFinish3D(static_cast<int>(value));
         if(key=="glass_strength"&&value>=0&&value<=1)setGlassStrength3D(static_cast<float>(value));
         if(key=="glass_motion"&&(value==0||value==1))setGlassMotion3D(value!=0);
@@ -150,7 +159,8 @@ bool AppRuntime::open(const char *title, bool hidden, std::string &error, bool m
     glfwWindowHint(GLFW_SAMPLES, 4);
     const bool maximize = windowState.saved ? windowState.maximized : !hidden;
     glfwWindowHint(GLFW_MAXIMIZED, maximize ? GLFW_TRUE : GLFW_FALSE);
-    window_ = glfwCreateWindow(windowState.width, windowState.height, title, nullptr, nullptr);
+    const auto versionedTitle=std::string(title)+" | v"+applicationVersion();
+    window_ = glfwCreateWindow(windowState.width, windowState.height, versionedTitle.c_str(), nullptr, nullptr);
     if (!window_) {
         error = "OpenGL 4.3 window creation failed.";
         return false;

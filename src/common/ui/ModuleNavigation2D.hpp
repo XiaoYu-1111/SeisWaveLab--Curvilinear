@@ -2,6 +2,7 @@
 #include "MenuWidgets.hpp"
 #include "ModelTransfer2D.hpp"
 #include "Presentation3D.hpp"
+#include <algorithm>
 namespace SeisWave::Ui {
 inline const char *moduleName2D(Module2D m) {
     using Seis3D::Curvilinear::Ui::language3D;
@@ -29,6 +30,15 @@ struct ModuleNavigation2D {
         using namespace Seis3D::Curvilinear::Ui;
         const bool zh = language3D() != 0;
         auto root = std::string(zh ? "模块：" : "Module: ") + moduleName2D(current) + "###ModuleSelect2D";
+        const float room = workbenchMenuRightEdge() - ImGui::GetCursorPosX();
+        if (ImGui::CalcTextSize(root.c_str(), nullptr, true).x +
+                ImGui::CalcTextSize(zh ? "复制模型到" : "Copy model to").x + ImGui::GetFontSize() * 4 + 120 >
+            room) {
+            const char *shortNames[]{zh ? "弹性" : "Elastic", zh ? "黏弹性" : "Viscoelastic",
+                                     zh ? "声学" : "Acoustic", "RTM"};
+            root = std::string(zh ? "模式：" : "Mode: ") + shortNames[static_cast<int>(current)] +
+                   "###ModuleSelect2D";
+        }
         bool open = beginDropdownMenu(root.c_str());
         rootRect = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
         if (open) {
@@ -66,8 +76,11 @@ struct ModuleNavigation2D {
                     bool okay = true;
                     if (target == Module2D::Elastic || target == Module2D::Viscoelastic)
                         okay = prepareElasticTransfer(transfer, target, error);
-                    else
+                    else {
                         transfer.model.attenuation.enabled = false;
+                        // Acoustic zero-pressure surfaces need a subsurface source.
+                        transfer.model.sourceZ = std::max(1, transfer.model.sourceZ);
+                    }
                     if (okay) {
                         modelMailbox2D().post(target, transfer);
                         requested = moduleRoute(target);

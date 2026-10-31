@@ -1,0 +1,9 @@
+CPU / FP32 / elastic: PASS row-0 force, normalized inward kernel, finite wavefield, receiver signal, traction, VTS; CUDA relative error 0
+CPU / FP32 / GSLS: PASS row-0 force, normalized inward kernel, finite wavefield, receiver signal, traction, VTS; CUDA relative error 0
+CPU / FP64 / elastic: PASS row-0 force, normalized inward kernel, finite wavefield, receiver signal, traction, VTS; CUDA relative error 0
+CPU / FP64 / GSLS: PASS row-0 force, normalized inward kernel, finite wavefield, receiver signal, traction, VTS; CUDA relative error 0
+CUDA / FP32 / elastic: PASS row-0 force, normalized inward kernel, finite wavefield, receiver signal, traction, VTS; CUDA relative error 0
+CUDA / FP32 / GSLS: PASS row-0 force, normalized inward kernel, finite wavefield, receiver signal, traction, VTS; CUDA relative error 0
+CUDA / FP64 / elastic: PASS row-0 force, normalized inward kernel, finite wavefield, receiver signal, traction, VTS; CUDA relative error 7.22989e-16
+CUDA / FP64 / GSLS: PASS row-0 force, normalized inward kernel, finite wavefield, receiver signal, traction, VTS; CUDA relative error 4.65761e-16
+PASS: free-surface-centered regularized directional body force; not a prescribed traction boundary source

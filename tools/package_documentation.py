@@ -12,6 +12,7 @@ import os
 import zipfile
 from pathlib import Path
 from PIL import Image
+from project_version import project_version
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT.parent / 'out'
@@ -76,7 +77,7 @@ def main():
             pixels=im.convert('RGB').tobytes()
         row.update(png=png.name,sha256=digest(png),pixel_sha256=hashlib.sha256(pixels).hexdigest())
         shutil.copy2(png,DOCS/'images'/png.name)
-    metadata=dict(version='0.16.0',date=UPDATED,recorded_three_d_capture_date=CAPTURE_DATE,recorded_two_d_capture_date=CAPTURE_DATE,theme='Red Yellow Orange',pixel_processing='Fresh full-window native framebuffer captures; lossless PNG; no crop, resize or recolor',captures=rows)
+    metadata=dict(version=project_version(),date=UPDATED,recorded_three_d_capture_date=CAPTURE_DATE,recorded_two_d_capture_date=CAPTURE_DATE,theme='Red Yellow Orange',pixel_processing='Fresh full-window native framebuffer captures; lossless PNG; no crop, resize or recolor',captures=rows)
     shutil.copy2(SHOTS/'dispersion-comparison.png',DOCS/'images/dispersion-comparison.png')
 
     selected_docs={p.name for p in (ROOT/'docs').glob('*.md') if p.name!='README.md'}
@@ -234,7 +235,7 @@ def main():
     (hexo/'source/_posts/seis3d-curvilinear.md').write_text(header+'---\n\n'+TOKEN.sub(hexo_link,body),encoding='utf-8')
     (BLOG/'README.md').write_text('''# GitHub Pages / Hexo 发布包
 
-两版均由同一份正文生成，依次为背景、原理、实现过程、界面介绍和附录。数学推导、算例条件、证据边界及参考文献一致，文章及全部界面截图更新于2026年10月27日。附带最新验证汇总、性能报告、倍速曲线和60轮原始计时数据；不包含试跑、构建日志、EXE或计算中间场。
+两版均由同一份正文生成，依次为背景、原理、实现过程、界面介绍和附录。数学推导、算例条件、证据边界及参考文献一致，文章及新增界面说明更新于2026年10月31日，截图采集日期见各页说明和清单。附带最新验证汇总、性能报告、倍速曲线和60轮原始计时数据；不包含试跑、构建日志、EXE或计算中间场。
 
 ## GitHub Pages（Jekyll）
 

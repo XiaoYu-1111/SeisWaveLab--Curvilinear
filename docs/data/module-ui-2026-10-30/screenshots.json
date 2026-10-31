@@ -10,7 +10,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "387a4d94dafc7dc23540cfff86d6e3a26c59d154529ef9c45adadbb06bb9d5ac"
+      "sha256": "fc8d9a12a747f0d2ea83829e341ea4b13dafa622f28515118e666687238067de"
     },
     {
       "source": "out/screenshots/absorber-display/viscoelastic.ppm",
@@ -21,7 +21,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "1e080e1db9af03b37830632e536601d5d2c3be633ad7b2e583c30f9dd7bd51ac"
+      "sha256": "cb69fa8ebe1979b463607655f1a6bb261b33812e48b007fedbb306774f952519"
     },
     {
       "source": "out/screenshots/acoustic/forward-6.ppm",
@@ -32,7 +32,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "669c669b343ce0dea75520fcba71cae2b8e3391d46b853ba9b91badd6f0d4b37"
+      "sha256": "abeabb5126b7749ab92982219ebf4a0031ef67dbf7a3701998baf17e5bfdf587"
     },
     {
       "source": "out/screenshots/acoustic/model-wavefield-overlay.ppm",
@@ -43,7 +43,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "d5169a12a9683ac73e26f58747a95ec3c9cdc3603e1d07a9cd446c39a80cc3c9"
+      "sha256": "73a0fc341aadfe63c34a79161231ec6563f96a728c6dec8b9584eec562e841a6"
     },
     {
       "source": "out/screenshots/acoustic/single-pressure-trace.ppm",
@@ -54,7 +54,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "69e13fa3d5aaf78ddf5fcc97dc278e450b4f6134b1d23170ad8a097f32469d41"
+      "sha256": "203cc588ff66bdcba664a98f8a9a464a11478cf681a3bb37ffd1d7913cb906fe"
     },
     {
       "source": "out/screenshots/acoustic/absorber-wavefield.ppm",
@@ -65,7 +65,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "2d7e8a044615ccc4758616035e5fc7ef675bc6206ad658d5e865137784b36492"
+      "sha256": "55c8bcd54ad7239596882081e46a1fb98ec5d1f553f26c200487cdac1b92d396"
     },
     {
       "source": "out/screenshots/acoustic/absorber-model-wavefield.ppm",
@@ -76,7 +76,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "0642195ba0e56c47ab4cb0931bf006b01a33e477a3411e82e8e0b68f69137e03"
+      "sha256": "138f5dcafc3c94202d4f660662bb7056620d422f6c9ac8a8a539b472560c8234"
     },
     {
       "source": "out/screenshots/acoustic/floating-parameters.ppm",
@@ -87,7 +87,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "e968979b471b01f26fcbcb42bb8be0c5b669b25cfc0092dc8b12d09645628294"
+      "sha256": "2afe0c662f2469698df6403682a8fb36aa91916c5c369c92c46d877f3efad5c3"
     },
     {
       "source": "out/screenshots/acoustic/keyboard-help.ppm",
@@ -98,7 +98,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "1431823f48eb386fde7978a03e42a2a69ff00851ac3e592d7e08e25a823f6e3f"
+      "sha256": "844b5bb12cef91ce21ce68eb775d137c355d7fb49779463899d9adbf10bae4fd"
     },
     {
       "source": "out/screenshots/acoustic/terrain-acquisition.ppm",
@@ -109,7 +109,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "1a3adea136c89a166a0388a14434646150b267205732be5c345ac76687cb6e1c"
+      "sha256": "fe6891f607e14dbd13e3798b0ecce85d1013b8ebde3aa2634bb36fa8a284418b"
     },
     {
       "source": "out/screenshots/acoustic/model-capacity.ppm",
@@ -120,7 +120,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "e627d097931d3739ebaa52f035044cbb21f0a238fe1cff1d6ed52b10cd9e40cb"
+      "sha256": "b2439f6aaaa724d34a440c4745d519fdb27b5585dc47a7d9464b21bfc3c2c223"
     },
     {
       "source": "out/screenshots/acoustic/shared-layer-editor.ppm",
@@ -131,7 +131,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "881c87579f2a8595f0effc1911aa39d3cc07d47c3a5672fcd2a4dcbd1f1f8401"
+      "sha256": "7df87f87129f1102a380adf508c9c01e462ae8d3a1c21657e555fc06e7a41eb9"
     },
     {
       "source": "out/screenshots/acoustic/shared-terrain-editor.ppm",
@@ -142,7 +142,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "6c9b6b46a8c6a1d0a185fecb2c56ce7054766aad80c9b9978a1a8ff6c3ace0dc"
+      "sha256": "4c39590ef91d14f1496867797f56047a6b2e854882a19160f6d49b4c65f6d675"
     },
     {
       "source": "out/screenshots/acoustic/surface-receivers.ppm",
@@ -153,7 +153,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "7657686dfc96a07b1e3e5d1351708a7e77e36e44c22fe873cf381c9121d72eb1"
+      "sha256": "2db233577ce4a8261bf330129e19730559d8d155ee0dab419325feecbbf73b96"
     },
     {
       "source": "out/screenshots/acoustic/drp-workspace.ppm",
@@ -164,7 +164,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "70185f72f4a823a5ae7857e396f664ff437e5c69397b32a5af2b0733d2a60597"
+      "sha256": "b622fc33202ce01dc7ee7832ddc64a3636c0c069e7e18024df785d700af22da8"
     },
     {
       "source": "out/screenshots/acoustic/auto-surface.ppm",
@@ -175,7 +175,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "2f78a8e5cbc07dcf8b94fefa00e3ac70cee37a28ea6fdab80b932a0b32638f92"
+      "sha256": "d29ac5728f70785dca6b3e57b7462ee09427d1ac40bad7cf1aaa4193cfd40217"
     },
     {
       "source": "out/screenshots/auto-surface/elastic.ppm",
@@ -186,7 +186,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "2ac932ca8beb667c540e35ecbcd7a1c934529dc3edb2a13a6cfd4570ad8b8aa3"
+      "sha256": "41fbe1bcda6b9505926bfcfa85520030e6e76d68147d424303256c22b65d476b"
     },
     {
       "source": "out/validation/acoustic-capacity-auto-2026-10-31/cuda-5000x2000.ppm",
@@ -208,7 +208,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "c5717722a37a1676bf10aeb342ce892bd0a7205adbc9e698d441b7ecba7ee754"
+      "sha256": "e831dd6dd628e1ef3cd4636a5d18072107e0e6a0720153d5658a25424ccbf5e2"
     },
     {
       "source": "out/screenshots/imaging/rtm-6.ppm",
@@ -219,7 +219,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "76918da7e6a267616723a8d20b35725c381511f044541d9d785b00d2ae4b5c18"
+      "sha256": "16e600c4a9a5503fa42d8d65e0f5d05d2e3358bfdceb8d3483ef3aab4aaf17a6"
     },
     {
       "source": "out/screenshots/imaging/floating-parameters.ppm",
@@ -230,7 +230,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "547a3ad7b1dc4d78c47fd56c3a56eca67ee9c85b2dac2eea80a94c28d72d2418"
+      "sha256": "444aeba21138da9a71f38d1194520fd005ca43708e8d4f58b0552bb8df3ce8a9"
     },
     {
       "source": "out/screenshots/imaging/rebuild-surface.ppm",
@@ -241,7 +241,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "3452c5f358e5a3646cd1589edf42398ce13f73db909eb1cba7d39252cb48a59f"
+      "sha256": "eee7cddacc04b7fa85471a86355ebd571dde9ccfb3911a4b1de096f06d613c7b"
     },
     {
       "source": "out/screenshots/imaging/manual-receivers.ppm",
@@ -252,7 +252,7 @@
       ],
       "theme": "Red Yellow Orange",
       "processing": "Lossless PNG only; native complete framebuffer",
-      "sha256": "d5fd58af7fb05dbd3e2c97dab0553e25c5f8f51d665578f17a835f6fedb6a6e8"
+      "sha256": "436bc537a956f48b0024c6305b0d46a1b0a5380f376148b17cb406f76bc50538"
     }
   ]
 }

@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-31",
+  "captures": [
+    {
+      "source": "out/screenshots/defaults-status/elastic.ppm",
+      "image": "images/defaults-status/elastic.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "wave_palette": "Coolwarm",
+      "model_palette": "Coolwarm",
+      "sha256": "d4b85c736ca294e0173b6216c9a8e154101e402a553bbb00d27966bd9b67828b",
+      "processing": "Lossless full native framebuffer"
+    },
+    {
+      "source": "out/screenshots/acoustic/forward-6.ppm",
+      "image": "images/defaults-status/acoustic.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "theme": "Red Yellow Orange",
+      "wave_palette": "Coolwarm",
+      "model_palette": "Coolwarm",
+      "sha256": "82cf5134e631e4c0c38a7ae29e19b8474d4e1854cec69c7140948ec6f38f9641",
+      "processing": "Lossless full native framebuffer"
+    }
+  ]
+}

@@ -1,5 +1,11 @@
 <p align="center"><img src="resources/icons/seis3d.png" width="112" alt="SeisWave Lab Curvilinear 软件图标"></p>
 
+当前版本由[VERSION](VERSION)统一定义；[更新记录](CHANGELOG.md) · [GitHub发布下载](https://github.com/XiaoYu-1111/SeisWaveLab--Curvilinear/releases) · [发布与重建说明](docs/RELEASING.md)。
+
+2026-10-31初始设置更新：二维声学与弹性默认500×200节点、h=2 m、30 Hz，模型/波场均为Coolwarm；弹性源在地表中点。新增右上角系统时间与FPS，可在显示页分别开关。[设置、截图与验证](docs/DEFAULT_MODEL_AND_STATUS.md)。
+
+2026-10-31界面更新：二维与三维波场/模型/高程色标横向并排；顶部菜单增加边框与间距，支持窄窗口更多菜单；二维正演初始模型统一为平地三层。[操作、截图与验证](docs/COMPACT_FIELD_UI.md)。
+
 2026-10-31正演采集更新：声学P1/DRP与弹性/黏弹性支持随模型自动沿地表均匀布设检波器，期望/实际道数分别保存；可切回手动，模型VTS保留设置，旧模型采集线保持兼容。[操作与验证](docs/FORWARD_SURFACE_RECEIVERS_2D.md)。
 
 2026-10-31 RTM交互更新：新增顶部及固定底部重建按钮，接收起点/道数/间隔/深度设置，默认随模型修改自动沿地表均匀布设；旧成像结果与新模型分开显示，支持再次运行。[操作、截图与验证](docs/RTM_2D.md)。
