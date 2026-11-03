@@ -43,7 +43,7 @@ def retain_legacy_reports(folder):
     """Move known former publication intermediates to a separate local archive."""
     out=OUTPUT.resolve()
     for name in ['capture-manifest.json','phase_comparison.csv','summary.json',
-                 'VERIFICATION_0_16.md','reference','data','package-validation.json']:
+                 'VERIFICATION_0_16.md','0.16版验证.md','reference','data','package-validation.json']:
         source=(folder/name).resolve()
         source.relative_to(out)
         if not source.exists(): continue
@@ -118,7 +118,7 @@ def main():
         return ''.join(chunk if i%2 else TOKEN.sub(link,chunk)
                        for i,chunk in enumerate(CODE.split(text)))
 
-    source=ROOT/'docs/PROJECT_MANUAL.md'
+    source=ROOT/'docs/项目手册.md'
     converted.add(source)
     source_text=source.read_text(encoding='utf-8')
     body=convert(source_text,source)
@@ -127,8 +127,8 @@ def main():
         notice='> 图像资料说明：'+', '.join(replaced)+' 的当前 PNG 尺寸与旧采集清单不一致；保留原图，不将旧清单中的采集日期或数值条件视为这些图片的已核验条件。其余截图也不作为本次界面更新的重新采集证据。\n\n'
         body=notice+body
     assert re.findall(r'^## (.+)$',body,re.M)==['1 背景','2 原理','3 实现过程','4 界面介绍','5 附录']
-    (DOCS/'PROJECT_MANUAL.md').write_text(body,encoding='utf-8')
-    for name in sorted(selected_docs-{'PROJECT_MANUAL.md'}):
+    (DOCS/'项目手册.md').write_text(body,encoding='utf-8')
+    for name in sorted(selected_docs-{'项目手册.md'}):
         page=ROOT/'docs'/name
         converted.add(page)
         (DOCS/name).write_text(convert(page.read_text(encoding='utf-8'),page),encoding='utf-8')
@@ -166,7 +166,7 @@ def main():
     metadata['home_capture']={'png':'two-d-home.png','published_size':home_size,'sha256':digest(SHOTS/'two-d/home.png'),'content':'Program-drawn functional illustration; no solver state'}
     metadata['total_native_screenshots']=len(rows)+len(rows2d)+1
     (DOCS.parent/'capture-manifest.json').write_text(json.dumps(metadata,ensure_ascii=False,indent=2),encoding='utf-8')
-    gallery=['# 界面与模拟过程图集' ,'', '34张2026-10-27重新采集的完整窗口界面图，统一红黄橙主题，2560×1494原生分辨率，无裁剪、无拉伸。20张三维（含默认DEM的turbo地表及俯视）、13张二维流程，另有主页。二维采用参数/波场/记录并列，三维记录页扩大道集高度。算例说明见[主文附录 E](PROJECT_MANUAL.md)。不同会话、自动色标或 AGC 视图不能直接比较绝对幅度，初始界面不构成动态计算精度证据。','']
+    gallery=['# 界面与模拟过程图集' ,'', '34张2026-10-27重新采集的完整窗口界面图，统一红黄橙主题，2560×1494原生分辨率，无裁剪、无拉伸。20张三维（含默认DEM的turbo地表及俯视）、13张二维流程，另有主页。二维采用参数/波场/记录并列，三维记录页扩大道集高度。算例说明见[主文附录 E](项目手册.md)。不同会话、自动色标或 AGC 视图不能直接比较绝对幅度，初始界面不构成动态计算精度证据。','']
     image_labels={Path(target).stem:label for bang,label,target in TOKEN.findall(source_text) if bang}
     for number,row in enumerate(rows,1):
         label=image_labels[row['image']]
@@ -182,7 +182,7 @@ def main():
             continue
         gallery += [f"## {number}. {label}",'',f"{row['backend']} | {row['nx']}×{row['nz']} | h={row['spacing_m']} m | f₀={row['f0_hz']} Hz | 第 {row['step']} 步 | t={float(row['time_s']):.6f} s | dt={float(row['dt_s'])*1000:.6f} ms | 记录间隔={float(row['record_dt_s'])*1000:.3f} ms",'',f"![{label}](images/{row['png']})",'']
     gallery += [f'## {len(rows)+len(rows2d)+1}. 曲面二维与三维入口','','![主页，程序绘制的功能示意](images/two-d-home.png)','']
-    (DOCS/'SCREENSHOT_GALLERY.md').write_text('\n'.join(gallery),encoding='utf-8')
+    (DOCS/'界面截图集.md').write_text('\n'.join(gallery),encoding='utf-8')
     cards=[]
     for row in rows+rows2d:
         label=image_labels.get(row['image'],labels2d.get(row['image'],row['image']))
@@ -192,9 +192,9 @@ def main():
     (DOCS/'SCREENSHOT_GALLERY.html').write_text(gallery_html,encoding='utf-8')
 
     for name in ['LICENSE','THIRD_PARTY_NOTICES.md']: shutil.copy2(ROOT/name,DOCS/name)
-    (DOCS/'README.md').write_text('# SeisWave Lab 图文说明\n\n[用户手册](USER_GUIDE.md) 提供实际操作与数据复现；[完整说明](PROJECT_MANUAL.md) 按背景、原理、实现过程、界面介绍和附录组织，包含数学推导、算例条件、数据定义与参考文献。[采集生产应用分析](ACQUISITION_PRODUCTION_VALUE.md) 说明黄土塬试验用途与能力边界；[最新二维精度性能](PERFORMANCE_PRECISION_2D.md)、[历史性能](PERFORMANCE_BENCHMARK.md)和[当前验证](NUMERICS_AND_VALIDATION.md) 提供计时及证据。[界面与模拟过程图集](SCREENSHOT_GALLERY.md) 收录34张2026-10-27新采集的红黄橙主题完整窗口图，正文另有内点频散分析图，图像均在 images 目录。\n\n本文区分数学模型、当前实现和已有证据范围，不以运行完成或后端一致代替物理精度验证。普通 Markdown 阅读器需启用数学公式渲染。软件许可和来源见随附 LICENSE 与 THIRD_PARTY_NOTICES.md。\n',encoding='utf-8')
+    (DOCS/'README.md').write_text('# SeisWave Lab 图文说明\n\n[用户手册](用户指南.md) 提供实际操作与数据复现；[完整说明](项目手册.md) 按背景、原理、实现过程、界面介绍和附录组织，包含数学推导、算例条件、数据定义与参考文献。[采集生产应用分析](采集参数与生产价值.md) 说明黄土塬试验用途与能力边界；[最新二维精度性能](二维性能与精度.md)、[历史性能](性能基准.md)和[当前验证](数值方法与验证.md) 提供计时及证据。[界面与模拟过程图集](界面截图集.md) 收录34张2026-10-27新采集的红黄橙主题完整窗口图，正文另有内点频散分析图，图像均在 images 目录。\n\n本文区分数学模型、当前实现和已有证据范围，不以运行完成或后端一致代替物理精度验证。普通 Markdown 阅读器需启用数学公式渲染。软件许可和来源见随附 LICENSE 与 THIRD_PARTY_NOTICES.md。\n',encoding='utf-8')
 
-    doc_files=sorted(selected_docs)+['SCREENSHOT_GALLERY.md','SCREENSHOT_GALLERY.html','README.md','LICENSE','THIRD_PARTY_NOTICES.md']+sorted(linked_files)
+    doc_files=sorted(selected_docs)+['界面截图集.md','SCREENSHOT_GALLERY.html','README.md','LICENSE','THIRD_PARTY_NOTICES.md']+sorted(linked_files)
     for resource in sorted((ROOT/'resources/examples/elevation').rglob('*')):
         if resource.suffix.lower() not in {'.csv','.md'}: continue
         relative='examples/elevation/'+resource.relative_to(ROOT/'resources/examples/elevation').as_posix()
@@ -204,7 +204,7 @@ def main():
     doc_files += ['images/'+row['png'] for row in rows+rows2d]+['images/dispersion-comparison.png']
     # Additional published UI images (e.g. the 2D/3D home screen) are not part
     # of the original 18-shot 3D numerical capture series or its metadata.
-    for page in selected_docs|{'SCREENSHOT_GALLERY.md'}:
+    for page in selected_docs|{'界面截图集.md'}:
         for bang,label,target in TOKEN.findall((DOCS/page).read_text(encoding='utf-8')):
             if bang and target.startswith('images/') and target not in doc_files:
                 doc_files.append(target)
@@ -247,13 +247,13 @@ def main():
 
 在 _config.yml 设置 post_asset_folder: true。使用 hexo-renderer-marked 时，同时配置 marked.prependRoot: true 和 marked.postAsset: true，使裸文件名解析到文章同名资源目录，兼顾正文及列表页。该配置依据 https://hexo.io/docs/asset-folders 。公式与 Jekyll 版采用相同行内及独立定界符，请启用支持这些定界符、aligned 环境和 tag 编号的 MathJax/KaTeX 配置及 Markdown 渲染器，避免普通 Markdown 先消耗公式反斜线；mathjax: true 不等于已经安装数学渲染插件。
 
-若使用 NexT 和旧 kramed 导致公式不显示，可采用已验证的构建时 SVG 配置，见[数学渲染修复说明](hexo/source/_posts/seis3d-curvilinear/HEXO_MATH.md)。该方案使用 hexo-renderer-markdown-it 7.1.1 与 markdown-it-mathjax3 5.2.0，并关闭主题重复的前端数学引擎。
+若使用 NexT 和旧 kramed 导致公式不显示，可采用已验证的构建时 SVG 配置，见[数学渲染修复说明](hexo/source/_posts/seis3d-curvilinear/Hexo数学公式.md)。该方案使用 hexo-renderer-markdown-it 7.1.1 与 markdown-it-mathjax3 5.2.0，并关闭主题重复的前端数学引擎。
 
 复制到现有站点即可本地预览；本工具不改站点配置、不覆盖主题，也不执行推送或发布。站点主题的最终数学/页面渲染需在该站点预览。已检查本包 Markdown 引用、图像存在性、PNG 像素摘要和原生分辨率。
 
 ## 无站点阅读
 
-assets 下的 PROJECT_MANUAL.md / SCREENSHOT_GALLERY.md 为普通相对路径 Markdown。另有独立 SeisWaveLab_Curvilinear_Documentation.zip 文档包。图片含完整原图；不要对比自动色标的跨时刻绝对幅度。
+assets 下的 项目手册.md / 界面截图集.md 为普通相对路径 Markdown。另有独立 SeisWaveLab_Curvilinear_Documentation.zip 文档包。图片含完整原图；不要对比自动色标的跨时刻绝对幅度。
 
 官方依据：https://jekyllrb.com/docs/front-matter/ ，https://jekyllrb.com/docs/liquid/filters/ ，https://hexo.io/docs/asset-folders 。
 ''',encoding='utf-8')

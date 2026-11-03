@@ -44,7 +44,7 @@ def main():
     report = report.replace('## 性能结果\n', '## 性能结果\n\n![CPU 与 CUDA 单步耗时对比](images/performance/performance.png)\n')
     report = report.replace('- 上一级目录包含 `provenance.json`（源码 SHA-256/提交信息）、`formal.log`、`gpu-start.csv` 与电源计划。',
                             '- [源码版本与 SHA-256](data/performance-2026-10-19/provenance.json)、[GPU 测试前状态](data/performance-2026-10-19/gpu-start.csv)、[GPU 测试后状态](data/performance-2026-10-19/gpu-end.csv)、[电源计划](data/performance-2026-10-19/power-plan.txt)。逐轮实测 CSV 是正式记录，原始运行日志留在外层 out。')
-    destination = repo / 'docs/PERFORMANCE_BENCHMARK.md'
+    destination = repo / 'docs/性能基准.md'
     destination.write_text(report, encoding='utf-8')
     copied.append(destination)
     manifest = {p.relative_to(repo).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in copied}

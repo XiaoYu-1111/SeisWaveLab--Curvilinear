@@ -108,7 +108,7 @@ Start-2D.cmd / Start-3D.cmd 直接进入相应工作区。
 - 已包含 GLFW、GLEW、CUDA runtime 和 Microsoft C++ / OpenMP app-local 运行库。
 - 若系统仍提示运行库错误，可手动运行 prerequisites/vc_redist.x64.exe。
 - 首次运行在旁边创建 userdata，界面偏好、默认导出与日志均在其中；不会使用开发机 D 盘路径。
-- 文档入口 docs/USER_GUIDE.md；示例位于 examples/elevation；着色器在 shaders。
+- 文档入口 docs/用户指南.md；示例位于 examples/elevation；着色器在 shaders。
 - 应用退出后可整体移动目录。不要只复制 EXE，也不要直接在 ZIP 预览中运行。
 - 这是免安装便携包，不会注册 Windows 服务、修改 PATH 或安装显卡驱动。
 
@@ -153,7 +153,7 @@ dependencies/windows 包含本次使用的 GLFW 3.4 / GLEW 2.1.0 x64 SDK；无�
 3. CUDA 版本：先安装与 MSVC 兼容的 CUDA Toolkit 12.8+，在终端执行 `Build-Windows.cmd cuda`。
 4. 主程序位于 `out/bin/Release/{PRODUCT}.exe`，源码文件夹内不会创建构建缓存。
 
-可直接用 VS 打开 {PRODUCT}，按 docs/BUILDING.md 配置 SDK 路径；辅助构建脚本会自动使用相对 dependencies 路径。
+可直接用 VS 打开 {PRODUCT}，按 docs/构建指南.md 配置 SDK 路径；辅助构建脚本会自动使用相对 dependencies 路径。
 CUDA 架构默认包含 sm_75 / sm_86 / sm_89 / sm_120 与 compute_75 PTX；较旧 Toolkit 需要缩减目标。
 
 构建全部验证目标：`cmake --build out/build/x64-Release --parallel 4`。

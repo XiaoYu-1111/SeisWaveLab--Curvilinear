@@ -341,17 +341,17 @@ python -B benchmarks/report_precision.py <该绝对目录>
     text=text.replace('5次',f'{manifest["repeats"]}次')
     text=text.replace('没有启用超频','测试脚本没有修改频率或启用超频')
     with (folder/'telemetry.csv').open('rb') as src,gzip.open(folder/'telemetry.csv.gz','wb') as dst:shutil.copyfileobj(src,dst)
-    local=text.replace('PRECISION_LINK','../../../SeisWaveLab_Curvilinear/docs/PRECISION_2D.md').replace('CPP_LINK','../../../SeisWaveLab_Curvilinear/benchmarks/PrecisionBenchmark2D.cpp').replace('RUNNER_LINK','../../../SeisWaveLab_Curvilinear/benchmarks/precision_suite.py').replace('REPORT_LINK','../../../SeisWaveLab_Curvilinear/benchmarks/report_precision.py')
+    local=text.replace('PRECISION_LINK','../../../SeisWaveLab_Curvilinear/docs/二维计算精度.md').replace('CPP_LINK','../../../SeisWaveLab_Curvilinear/benchmarks/PrecisionBenchmark2D.cpp').replace('RUNNER_LINK','../../../SeisWaveLab_Curvilinear/benchmarks/precision_suite.py').replace('REPORT_LINK','../../../SeisWaveLab_Curvilinear/benchmarks/report_precision.py')
     (folder/'二维CPU32线程_GPU精度性能测试报告.md').write_text(local,encoding='utf-8')
     if publish:
         data=ROOT/'docs/data/precision-cpu32-2026-10-29';images=ROOT/'docs/images/precision-cpu32'
         data.mkdir(parents=True,exist_ok=True);images.mkdir(parents=True,exist_ok=True)
-        published=text.replace('PRECISION_LINK','PRECISION_2D.md').replace('CPP_LINK','../benchmarks/PrecisionBenchmark2D.cpp').replace('RUNNER_LINK','../benchmarks/precision_suite.py').replace('REPORT_LINK','../benchmarks/report_precision.py')
+        published=text.replace('PRECISION_LINK','二维计算精度.md').replace('CPP_LINK','../benchmarks/PrecisionBenchmark2D.cpp').replace('RUNNER_LINK','../benchmarks/precision_suite.py').replace('REPORT_LINK','../benchmarks/report_precision.py')
         for name in ['trials.csv','summary.csv','consistency.csv','manifest-public.json','summary.json','telemetry.csv.gz']:
             shutil.copy2(folder/name,data/name);published=published.replace(']('+name+')','](data/precision-cpu32-2026-10-29/'+name+')')
         for name in ['step_time','throughput','gpu_speedup','precision_speedup','memory','gpu_telemetry']:
             shutil.copy2(folder/f'{name}.png',images/f'{name}.png');published=published.replace(f']({name}.png)',f'](images/precision-cpu32/{name}.png)')
-        (ROOT/'docs/PERFORMANCE_PRECISION_2D.md').write_text(published,encoding='utf-8')
+        (ROOT/'docs/二维性能与精度.md').write_text(published,encoding='utf-8')
     print(json.dumps({'attempted':len(trials),'success':len(ok),'rejected':len(rejected),'conditions':aggregate},ensure_ascii=False,indent=2))
 
 if __name__=='__main__':

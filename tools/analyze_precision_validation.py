@@ -189,7 +189,7 @@ python -B tools/analyze_precision_validation.py
 
 证据：[逐分量误差](accuracy.csv)、[存储和牵引](storage.csv)、[重复性能测试](benchmark.csv)、[大模型容量](capacity.csv)、[51时刻长尾](long_tail.csv)、[摘要](summary.json)。[测试源码](SOURCE_VALIDATION)、[分析脚本](SOURCE_ANALYSIS)。
 '''
-    (OUT / '二维精度验证与性能实测.md').write_text(main.replace('LATEST_PERF_LINK','../../../SeisWaveLab_Curvilinear/docs/PERFORMANCE_PRECISION_2D.md').replace('SOURCE_VALIDATION','../../../SeisWaveLab_Curvilinear/src/two_d/PrecisionValidation2D.cpp').replace('SOURCE_ANALYSIS','../../../SeisWaveLab_Curvilinear/tools/analyze_precision_validation.py'), encoding='utf-8')
+    (OUT / '二维精度验证与性能实测.md').write_text(main.replace('LATEST_PERF_LINK','../../../SeisWaveLab_Curvilinear/docs/二维性能与精度.md').replace('SOURCE_VALIDATION','../../../SeisWaveLab_Curvilinear/src/two_d/PrecisionValidation2D.cpp').replace('SOURCE_ANALYSIS','../../../SeisWaveLab_Curvilinear/tools/analyze_precision_validation.py'), encoding='utf-8')
     if args.publish:
         dest = ROOT/'docs/data/precision-2d-2026-10-28';images = ROOT/'docs/images/precision-2d'
         dest.mkdir(parents=True, exist_ok=True);images.mkdir(parents=True, exist_ok=True)
@@ -203,8 +203,8 @@ python -B tools/analyze_precision_validation.py
             published = published.replace(']('+name+')','](images/precision-2d/'+name+')')
         for name in ['accuracy.csv','storage.csv','benchmark.csv','capacity.csv','long_tail.csv','summary.json']:
             published = published.replace(']('+name+')','](data/precision-2d-2026-10-28/'+name+')')
-        published = published.replace('LATEST_PERF_LINK','PERFORMANCE_PRECISION_2D.md').replace('SOURCE_VALIDATION','../src/two_d/PrecisionValidation2D.cpp').replace('SOURCE_ANALYSIS','../tools/analyze_precision_validation.py')
-        (ROOT/'docs/PRECISION_2D.md').write_text(published, encoding='utf-8')
+        published = published.replace('LATEST_PERF_LINK','二维性能与精度.md').replace('SOURCE_VALIDATION','../src/two_d/PrecisionValidation2D.cpp').replace('SOURCE_ANALYSIS','../tools/analyze_precision_validation.py')
+        (ROOT/'docs/二维计算精度.md').write_text(published, encoding='utf-8')
     print(json.dumps({k:v for k,v in summary.items() if k in ['max_relative_l2','raw_records_max_relative_l2','late_records_max_relative_l2','groups']}, ensure_ascii=False, indent=2))
 
 if __name__ == '__main__':

@@ -290,7 +290,7 @@ def main():
  analysis_source=root/'source/analysis';analysis_source.mkdir(exist_ok=True)
  import shutil
  shutil.copy2(Path(__file__),analysis_source/Path(__file__).name)
- shutil.copy2(REPO/'docs/QP_QS_VISCOELASTIC_2D.md',analysis_source/'Qp_Qs方法说明.md')
+ shutil.copy2(REPO/'docs/二维黏弹性Q值.md',analysis_source/'Qp_Qs方法说明.md')
  shutil.copy2(REPO/'tools/export_gsls_fit_curves.cpp',analysis_source/'export_gsls_fit_curves.cpp')
  shutil.copy2(REPO/'cmake/Targets.cmake',analysis_source/'Targets.cmake')
  (analysis_source/'复现补充说明.md').write_text('本目录是求解开始后补充的分析代码与构建目标。source_worktree.zip保留求解开始时的源树。重建全部分析时，将本目录的analyze_jingbian_q_comparison.py及export_gsls_fit_curves.cpp置于解压源码tools目录，将Targets.cmake置于cmake目录，再构建seis_gsls_fit_curves。拟合导出调用与求解器相同的GSLS拟合函数，只用于展示实验频带的本构曲线，不作为独立传播验证。\n',encoding='utf-8')

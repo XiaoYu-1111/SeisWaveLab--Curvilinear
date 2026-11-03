@@ -36,4 +36,4 @@ gallery=['# 当前完整窗口截图','', '全部界面图于2026-10-27从当前
 for i,row in enumerate(published,1):
  label=labels3d[i-1] if row['dimension']=='3D' else labels2d.get(row['image'],'二维/三维主页')
  gallery += [f"## {i}. {row['dimension']} · {label}",'',f"{row['width']}×{row['height']} | 红黄橙 | {row['capture_date']}"+(' | '+row['backend']+' | t='+f"{float(row['time_s']):.6f} s" if row.get('backend') else ''),'',f"![{label}]({row['path']})",'']
-(r/'docs/SCREENSHOT_GALLERY.md').write_text('\n'.join(gallery),encoding='utf-8')
+(r/'docs/界面截图集.md').write_text('\n'.join(gallery),encoding='utf-8')

@@ -147,7 +147,7 @@ def main():
     for path in [executable, OUT / 'bin/Release/seis2d_viscoelastic_validation.exe', Path(__file__).resolve(), ROOT / 'include/SeisCommon/Gsls.hpp', ROOT / 'src/two_d/ViscoelasticValidation2D.cpp', ROOT / 'src/common/Gsls.cpp', ROOT / 'src/two_d/PointKernels2D.hpp', ROOT / 'src/two_d/CurvilinearSolver2D.cpp', ROOT / 'src/two_d/CudaEngine2D.cu'] + list(folder.glob('*/model.vts')) + list(folder.glob('*/records.csv')):
         manifest['hashes'][str(path.relative_to(ROOT.parent))] = hashlib.sha256(path.read_bytes()).hexdigest()
     (folder / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
-    shutil.copy2(ROOT/'docs/QP_QS_VISCOELASTIC_2D.md',folder/'METHOD.md')
+    shutil.copy2(ROOT/'docs/二维黏弹性Q值.md',folder/'METHOD.md')
     (folder/'references').mkdir(exist_ok=True)
     shutil.copy2(ROOT/'docs/references/attenuation.bib',folder/'references/attenuation.bib')
     text = ['# 二维 Qp/Qs 方法复现与受控模拟', '',
@@ -178,7 +178,7 @@ def main():
                 path=(ROOT/relative).resolve()
                 if not path.is_relative_to(ROOT) or not path.is_file():raise ValueError(f'Invalid source path: {relative}')
                 archive.write(path,'SeisWaveLab_Curvilinear/'+relative)
-        manifest['source_snapshot']={'file':source.name,'sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'scope':'Current non-ignored repository files, without Git history or external SDKs; build dependencies are documented in docs/BUILDING.md'}
+        manifest['source_snapshot']={'file':source.name,'sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'scope':'Current non-ignored repository files, without Git history or external SDKs; build dependencies are documented in docs/构建指南.md'}
         (folder/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
         bundle=folder.parent/(folder.name+'-results.zip')
         with zipfile.ZipFile(bundle,'w',zipfile.ZIP_DEFLATED) as archive:

@@ -2,7 +2,7 @@
 
 ## 最新二维FP32/FP64全线程比较（2026-10-29）
 
-[当前报告](../docs/PERFORMANCE_PRECISION_2D.md)使用独立`seis2d_precision_benchmark`，直接调用二维生产API；CPU32线程，GPU为用户开启的厂商性能模式。四档256²/1024²/1536²/2048² × 弹性/3支路GSLS+CFS-PML × CPU/GPU × FP32/FP64 × 5次，共160次，保留资源拒绝，不改旧基准数据。
+[当前报告](../docs/二维性能与精度.md)使用独立`seis2d_precision_benchmark`，直接调用二维生产API；CPU32线程，GPU为用户开启的厂商性能模式。四档256²/1024²/1536²/2048² × 弹性/3支路GSLS+CFS-PML × CPU/GPU × FP32/FP64 × 5次，共160次，保留资源拒绝，不改旧基准数据。
 
 在外层x64 MSVC环境构建`cmake --build out/build/x64-Release --target seis2d_precision_benchmark --parallel 4`。从仓库根目录执行：
 
@@ -31,6 +31,6 @@ out/bin/Release/seis_compute_benchmark.exe --output <外层out下的绝对结果
 
 计时包含曲网格 RK4、Float64、每步诊断/回滚保护和一个接收点，不包括初始化、重置、输出、绘图或快照下载。CUDA 每步由生产诊断/采样同步完成，不等同于 Cartesian 的 Float32、无接收记录内核基准，不能直接用两项目绝对耗时判定算法优劣。粗网格高频模型用于性能压力测试，并非精度验证。
 
-运行结果默认保存在外层 `out/benchmarks`。按用户要求发布的最新结果见 [性能对比报告](../docs/PERFORMANCE_BENCHMARK.md)，包括单步耗时图、倍速曲线和 60 轮原始 CSV；文档中的图片、数据与源码版本信息均在仓库内，可随 Git 同步。
+运行结果默认保存在外层 `out/benchmarks`。按用户要求发布的最新结果见 [性能对比报告](../docs/性能基准.md)，包括单步耗时图、倍速曲线和 60 轮原始 CSV；文档中的图片、数据与源码版本信息均在仓库内，可随 Git 同步。
 
 明确发布时，从内层仓库执行 `python -B benchmarks/publish.py <已完成的结果目录>`。它校验完成标志、复制已复核图表与数据、改写仓库内相对链接，并记录 SHA-256；运行日志、试跑、EXE 和构建缓存留在外层 out。
